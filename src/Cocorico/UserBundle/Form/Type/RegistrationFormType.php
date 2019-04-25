@@ -11,25 +11,23 @@
 
 namespace Cocorico\UserBundle\Form\Type;
 
+use Cocorico\UserBundle\Entity\User;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\BirthdayType;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Form\Extension\Core\Type\CountryType;
+use Symfony\Component\Form\Extension\Core\Type\EmailType;
+use Symfony\Component\Form\Extension\Core\Type\RepeatedType;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
+use Symfony\Component\Form\Extension\Core\Type\TimezoneType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
- * Class RegistrationFormType
- *
+ * Class RegistrationFormType.
  */
 class RegistrationFormType extends AbstractType
 {
-    private $class;
-
-    /**
-     * @param string $class
-     */
-    public function __construct($class)
-    {
-        $this->class = $class;
-    }
 
     /**
      * @param FormBuilderInterface $builder
@@ -39,80 +37,137 @@ class RegistrationFormType extends AbstractType
     {
         $builder
             ->add(
+                'personType',
+                ChoiceType::class,
+                array(
+                    'label' => 'form.person_type',
+                    'choices' => array_flip(User::$personTypeValues),
+                    'expanded' => true,
+                    'empty_data' => User::PERSON_TYPE_NATURAL,
+                    'required' => true,
+                )
+            )
+            ->add(
+                'companyName',
+                TextType::class,
+                array(
+                    'label' => 'form.company_name',
+                    'required' => false,
+                )
+            )
+            ->add(
                 'lastName',
-                null,
-                array('label' => 'form.last_name')
+                TextType::class,
+                array(
+                    'label' => 'form.last_name',
+                )
             )
             ->add(
                 'firstName',
-                null,
-                array('label' => 'form.first_name')
+                TextType::class,
+                array(
+                    'label' => 'form.first_name',
+                )
+            )
+            ->add(
+                'phonePrefix',
+                TextType::class,
+                array(
+                    'label' => 'form.user.phone_prefix',
+                    'required' => false,
+                    'empty_data' => '+33',
+                )
+            )
+            ->add(
+                'phone',
+                TextType::class,
+                array(
+                    'label' => 'form.user.phone',
+                    'required' => false,
+                )
             )
             ->add(
                 'email',
-                'email',
+                EmailType::class,
                 array('label' => 'form.email')
             )
             ->add(
                 'birthday',
-                'birthday',
+                BirthdayType::class,
                 array(
                     'label' => 'form.user.birthday',
-//                    'format' => 'dd MMMM yyyy',
-                    'widget' => "choice",
+                    'widget' => 'choice',
                     'years' => range(date('Y') - 18, date('Y') - 100),
-                    'required' => true
+                    'required' => true,
                 )
             )
             ->add(
-                'countryOfResidence',
-                'country',
+                'nationality',
+                CountryType::class,
                 array(
-                    'label' => 'form.user.countryOfResidence',
+                    'label' => 'form.user.nationality',
                     'required' => true,
-                    'data' => 'FR',
                     'preferred_choices' => array("GB", "FR", "ES", "DE", "IT", "CH", "US", "RU"),
                 )
             )
             ->add(
+                'countryOfResidence',
+                CountryType::class,
+                array(
+                    'label' => 'form.user.country_of_residence',
+                    'required' => true,
+                    'preferred_choices' => array('GB', 'FR', 'ES', 'DE', 'IT', 'CH', 'US', 'RU'),
+                    'data' => 'FR',
+                )
+            )
+            ->add(
                 'plainPassword',
-                'repeated',
+                RepeatedType::class,
                 array(
                     'type' => 'password',
                     'options' => array('translation_domain' => 'cocorico_user'),
                     'first_options' => array(
                         'label' => 'form.password',
-                        'required' => true
+                        'required' => true,
                     ),
                     'second_options' => array(
                         'label' => 'form.password_confirmation',
-                        'required' => true
+                        'required' => true,
                     ),
                     'invalid_message' => 'fos_user.password.mismatch',
-                    'required' => true
+                    'required' => true,
+                )
+            )
+            ->add(
+                'timeZone',
+                TimezoneType::class,
+                array(
+                    'label' => 'form.time_zone',
+                    'required' => true,
                 )
             );
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
-                'data_class' => $this->class,
-                'intention' => 'user_registration',
+                'data_class' => 'Cocorico\UserBundle\Entity\User',
+                'csrf_token_id' => 'user_registration',
                 'translation_domain' => 'cocorico_user',
                 'validation_groups' => array('CocoricoRegistration'),
             )
         );
     }
 
+
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'user_registration';
     }

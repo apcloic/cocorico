@@ -12,6 +12,10 @@
 namespace Cocorico\CoreBundle\Controller\Dashboard\Asker;
 
 use Cocorico\CoreBundle\Entity\Booking;
+use Cocorico\CoreBundle\Form\Type\Dashboard\BookingEditType;
+use Cocorico\CoreBundle\Form\Type\Dashboard\BookingStatusFilterType;
+use Cocorico\MessageBundle\Event\MessageEvent;
+use Cocorico\MessageBundle\Event\MessageEvents;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\ParamConverter;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
@@ -88,43 +92,42 @@ class BookingController extends Controller
      */
     public function showAction(Request $request, Booking $booking)
     {
-        $threadObj = $booking->getThread();
+        $thread = $booking->getThread();
         /** @var Form $form */
-        $form = $this->container->get('fos_message.reply_form.factory')
-            ->create($threadObj);
-
+        $form = $this->get('fos_message.reply_form.factory')->create($thread);
         $paramArr = $request->get($form->getName());
-
         $request->request->set($form->getName(), $paramArr);
-        $formHandler = $this->container->get('fos_message.reply_form.handler');
+
+        $formHandler = $this->get('fos_message.reply_form.handler');
 
         if ($message = $formHandler->process($form)) {
-            $selfUrl = $this->container->get('router')->generate(
+
+            $recipients = $thread->getOtherParticipants($this->getUser());
+            $recipient = (count($recipients) > 0) ? $recipients[0] : $this->getUser();
+
+            $messageEvent = new MessageEvent($thread, $recipient, $this->getUser());
+            $this->get('event_dispatcher')->dispatch(MessageEvents::MESSAGE_POST_SEND, $messageEvent);
+
+            return $this->redirectToRoute(
                 'cocorico_dashboard_booking_show_asker',
                 array('id' => $booking->getId())
             );
-
-            $recipients = $threadObj->getOtherParticipants($this->getUser());
-            $recipient = (count($recipients) > 0) ? $recipients[0] : $this->getUser();
-            $this->container->get('cocorico_user.mailer.twig_swift')
-                ->sendNotificationForNewMessageToUser($recipient, $threadObj);
-
-            return new RedirectResponse($selfUrl);
         }
 
-        $breadcrumbs = $this->get('cocorico.breadcrumbs_manager');
-        $breadcrumbs->addBookingShowBreadcrumbs($request, $booking);
+        $canBeCanceledByAsker = $this->get('cocorico.booking.manager')->canBeCanceledByAsker($booking);
 
         return $this->render(
             'CocoricoCoreBundle:Dashboard/Booking:show.html.twig',
             array(
                 'booking' => $booking,
+                'canBeCanceledByAsker' => $canBeCanceledByAsker,
                 'form' => $form->createView(),
                 'other_user' => $booking->getListing()->getUser(),
                 'other_user_rating' => $booking->getListing()->getUser()->getAverageOffererRating(),
                 'amount_total' => $booking->getAmountToPayByAskerDecimal(),
                 'vat_inclusion_text' => $this->get('cocorico.twig.core_extension')
-                    ->vatInclusionText($request->getLocale(), true, true)
+                    ->vatInclusionText($request->getLocale(), true, true),
+                'user_timezone' => $booking->getTimeZoneAsker(),
             )
         );
     }
@@ -155,23 +158,22 @@ class BookingController extends Controller
 
         $success = $bookingHandler->process($form);
 
-        $translator = $this->container->get('translator');
-        $session = $this->container->get('session');
+        $translator = $this->get('translator');
+        $session = $this->get('session');
         if ($success == 1) {
-            $url = $this->generateUrl(
-                'cocorico_dashboard_booking_edit_asker',
-                array(
-                    'id' => $booking->getId(),
-                    'type' => $type
-                )
-            );
 
             $session->getFlashBag()->add(
                 'success',
                 $translator->trans('booking.edit.success', array(), 'cocorico_booking')
             );
 
-            return $this->redirect($url);
+            return $this->redirectToRoute(
+                'cocorico_dashboard_booking_edit_asker',
+                array(
+                    'id' => $booking->getId(),
+                    'type' => $type
+                )
+            );
         } elseif ($success < 0) {
             $errorMsg = $translator->trans('booking.new.unknown.error', array(), 'cocorico_booking');
             if ($success == -1 || $success == -2 || $success == -4) {
@@ -182,17 +184,21 @@ class BookingController extends Controller
             $session->getFlashBag()->add('error', $errorMsg);
         }
 
+        $canBeCanceledByAsker = $this->get('cocorico.booking.manager')->canBeCanceledByAsker($booking);
+
         return $this->render(
             'CocoricoCoreBundle:Dashboard/Booking:edit.html.twig',
             array(
                 'booking' => $booking,
+                'booking_can_be_edited' => $canBeCanceledByAsker,
                 'type' => $type,
                 'form' => $form->createView(),
                 'other_user' => $booking->getListing()->getUser(),
                 'other_user_rating' => $booking->getListing()->getUser()->getAverageOffererRating(),
                 'amount_total' => $bookingRefundManger->getAmountDecimalToRefundOrRefundedToAsker($booking),
                 'vat_inclusion_text' => $this->get('cocorico.twig.core_extension')
-                    ->vatInclusionText($request->getLocale(), true, true)
+                    ->vatInclusionText($request->getLocale(), true, true),
+                'user_timezone' => $booking->getTimeZoneAsker(),
             )
         );
     }
@@ -209,7 +215,7 @@ class BookingController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             'booking',
-            'booking_edit',
+            BookingEditType::class,
             $booking,
             array(
                 'method' => 'POST',
@@ -229,14 +235,13 @@ class BookingController extends Controller
     /**
      * Creates a form to filter bookings
      *
-     *
      * @return \Symfony\Component\Form\Form The form
      */
     private function createBookingFilterForm()
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'booking_status_filter',
+            BookingStatusFilterType::class,
             null,
             array(
                 'action' => $this->generateUrl(
@@ -256,6 +261,8 @@ class BookingController extends Controller
      *      "id" = "\d+"
      * })
      * @Method("GET")
+     *
+     * @Security("is_granted('view_voucher_as_asker', booking)")
      *
      * @param Request $request
      * @param Booking $booking

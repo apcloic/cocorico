@@ -14,7 +14,6 @@ namespace Cocorico\UserBundle\DependencyInjection;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader;
-use Symfony\Component\DependencyInjection\Loader\XmlFileLoader;
 use Symfony\Component\HttpKernel\DependencyInjection\Extension;
 
 /**
@@ -29,16 +28,15 @@ class CocoricoUserExtension extends Extension
      */
     public function load(array $configs, ContainerBuilder $container)
     {
-        $configuration = new Configuration();
-        $config = $this->processConfiguration($configuration, $configs);
+//        $configuration = new Configuration();
+//        $config = $this->processConfiguration($configuration, $configs);
 
-        $loader = new XmlFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
-        $loader->load("services/mailer.xml");
-        $loader->load("services/manager.xml");
-        $loader->load("services/registration.xml");
-        $loader->load("services/resetting.xml");
-        $loader->load("services/profile.xml");
-        $loader->load("services/login.xml");
-        $loader->load("services/admin_orm.xml");
+        $loader = new Loader\XmlFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
+        $loader->load("Services/overridden/mailer.xml");
+        $loader->load("Services/overridden/registration.xml");
+        $loader->load("Services/overridden/resetting.xml");
+        $loader->load("Services/overridden/profile.xml");
+        $loader->load("Services/overridden/admin_orm.xml");
+        $loader->load("Services/overridden/email_confirmation.xml");
     }
 }

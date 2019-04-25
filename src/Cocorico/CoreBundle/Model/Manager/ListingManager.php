@@ -12,44 +12,47 @@
 namespace Cocorico\CoreBundle\Model\Manager;
 
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Entity\ListingCategory;
 use Cocorico\CoreBundle\Entity\ListingImage;
+use Cocorico\CoreBundle\Entity\ListingListingCategory;
 use Cocorico\CoreBundle\Entity\ListingListingCharacteristic;
 use Cocorico\CoreBundle\Entity\ListingTranslation;
 use Cocorico\CoreBundle\Mailer\TwigSwiftMailer;
+use Cocorico\CoreBundle\Model\ListingCategoryFieldValueInterface;
+use Cocorico\CoreBundle\Model\ListingCategoryListingCategoryFieldInterface;
 use Cocorico\CoreBundle\Model\ListingOptionInterface;
 use Cocorico\CoreBundle\Repository\ListingCharacteristicRepository;
 use Cocorico\CoreBundle\Repository\ListingRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\Query;
 use Doctrine\ORM\Tools\Pagination\Paginator;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
-use Symfony\Component\Security\Core\SecurityContext;
 
 class ListingManager extends BaseManager
 {
     protected $em;
-    protected $securityContext;
+    protected $securityTokenStorage;
     protected $newListingIsPublished;
     public $maxPerPage;
     protected $mailer;
 
     /**
      * @param EntityManager   $em
-     * @param SecurityContext $securityContext
+     * @param TokenStorage    $securityTokenStorage
      * @param int             $newListingIsPublished
      * @param int             $maxPerPage
      * @param TwigSwiftMailer $mailer
      */
     public function __construct(
         EntityManager $em,
-        SecurityContext $securityContext,
+        TokenStorage $securityTokenStorage,
         $newListingIsPublished,
         $maxPerPage,
         TwigSwiftMailer $mailer
     ) {
         $this->em = $em;
-        $this->securityContext = $securityContext;
+        $this->securityTokenStorage = $securityTokenStorage;
         $this->newListingIsPublished = $newListingIsPublished;
         $this->maxPerPage = $maxPerPage;
         $this->mailer = $mailer;
@@ -144,17 +147,14 @@ class ListingManager extends BaseManager
     /**
      * @param  Listing $listing
      * @param  array   $images
-     * @param  boolean $persist
-     *
+     * @param bool     $persist
      * @return Listing
+     * @throws AccessDeniedException
      */
     public function addImages(Listing $listing, array $images, $persist = false)
     {
-//        echo get_class($listing->getUser());
-//        echo ($this->securityContext->getToken()->getUser());
-//        echo($listing->getUser()->getId());
         //@todo : see why user is anonymous and not authenticated
-        if (true || $listing && $listing->getUser() == $this->securityContext->getToken()->getUser()) {
+        if (true || $listing && $listing->getUser() == $this->securityTokenStorage->getToken()->getUser()) {
             //Start new positions value
             $nbImages = $listing->getImages()->count();
 
@@ -179,6 +179,54 @@ class ListingManager extends BaseManager
         return $listing;
     }
 
+    /**
+     * Create categories and field values while listing deposit.
+     *
+     * @param  Listing $listing
+     * @param  array   $categories Id(s) of ListingCategory(s) selected
+     * @param  array   $values     Value(s) of ListingCategoryFieldValue(s) of the ListingCategory(s) selected
+     *
+     * @return Listing
+     */
+    public function addCategories(Listing $listing, array $categories, array $values)
+    {
+        foreach ($categories as $i => $category) {
+            //Find the ListingCategory entity selected
+            /** @var ListingCategory $listingCategory */
+            $listingCategory = $this->em->getRepository('CocoricoCoreBundle:ListingCategory')->findOneById(
+                $category
+            );
+
+            //Create the corresponding ListingListingCategory
+            $listingListingCategory = new ListingListingCategory();
+            $listingListingCategory->setListing($listing);
+            $listingListingCategory->setCategory($listingCategory);
+
+            //Create the corresponding ListingCategoryFieldValue(s)
+            /** @var ListingCategoryListingCategoryFieldInterface $field */
+            if ($listingCategory->getFields()) {
+                foreach ($listingCategory->getFields() as $field) {
+                    /** @var ListingCategoryFieldValueInterface $fieldValue */
+                    $fieldValue = new \Cocorico\ListingCategoryFieldBundle\Entity\ListingCategoryFieldValue();
+                    $fieldValue->setListingListingCategory($listingListingCategory);
+                    $fieldValue->setListingCategoryListingCategoryField($field);
+                    //Set the values. Index of $values corresponds to the ListingCategoryListingCategoryField Id.
+                    //It permits to associate the field value with the corresponding field.
+                    //Mainly use to remove block fields when the corresponding category is unselected
+                    //See Listing->getCategoriesFieldsValuesOrderedByGroup method
+                    $value = isset($values[$field->getId()]["value"]) ? $values[$field->getId()]["value"] : null;
+                    $fieldValue->setValue($value);
+
+                    $listingListingCategory->addValue($fieldValue);
+                }
+            }
+
+
+            $listing->addListingListingCategory($listingListingCategory);
+        }
+
+        return $listing;
+    }
 
     /**
      * @param int    $ownerId
@@ -191,6 +239,9 @@ class ListingManager extends BaseManager
     public function findByOwner($ownerId, $locale, $status, $page)
     {
         $queryBuilder = $this->getRepository()->getFindByOwnerQuery($ownerId, $locale, $status);
+
+        $queryBuilder
+            ->addOrderBy('l.createdAt', 'desc');
 
         //Pagination
         $queryBuilder
@@ -211,7 +262,7 @@ class ListingManager extends BaseManager
     public function alertUpdateCalendars()
     {
         $result = 0;
-        $listings = $this->getRepository()->findPublishedListing();
+        $listings = $this->getRepository()->findAllPublished();
 
         foreach ($listings as $listing) {
             if ($this->alertUpdateCalendar($listing)) {
@@ -246,7 +297,9 @@ class ListingManager extends BaseManager
     public function duplicate(Listing $listing)
     {
         $listingCloned = clone $listing;
-        $listingCloned->setStatus(Listing::STATUS_NEW);
+        if (!$this->newListingIsPublished) {
+            $listing->setStatus(Listing::STATUS_TO_VALIDATE);
+        }
 
         //Translations
         $listingCloned->mergeNewTranslations();

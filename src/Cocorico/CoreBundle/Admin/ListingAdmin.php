@@ -11,22 +11,28 @@
 
 namespace Cocorico\CoreBundle\Admin;
 
+use A2lix\TranslationFormBundle\Form\Type\TranslationsType;
 use Cocorico\CoreBundle\Entity\Listing;
 use Cocorico\CoreBundle\Form\Type\ListingImageType;
+use Cocorico\CoreBundle\Form\Type\PriceType;
+use Cocorico\UserBundle\Repository\UserRepository;
 use Doctrine\ORM\Query\Expr;
-use Sonata\AdminBundle\Admin\Admin;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Form\Type\Filter\NumberType;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Form\Extension\Core\Type\CollectionType;
 
-class ListingAdmin extends Admin
+class ListingAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'listing';
     protected $locales;
     protected $includeVat;
+    protected $bundles;
 
     // setup the default sort column and order
     protected $datagridValues = array(
@@ -47,11 +53,29 @@ class ListingAdmin extends Admin
         $this->includeVat = $includeVat;
     }
 
+    public function setBundlesEnabled($bundles)
+    {
+        $this->bundles = $bundles;
+    }
+
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Listing $listing */
+        $listing = $this->getSubject();
+
+        $offererQuery = null;
+        if ($listing) {
+            /** @var UserRepository $userRepository */
+            $userRepository = $this->modelManager->getEntityManager('CocoricoUserBundle:User')
+                ->getRepository('CocoricoUserBundle:User');
+
+            $offererQuery = $userRepository->getFindOneQueryBuilder($listing->getUser()->getId());
+        }
+
 
         //Translations fields
-        $titles = $descriptions = array();
+        $titles = $descriptions = $rules = array();
         foreach ($this->locales as $i => $locale) {
             $titles[$locale] = array(
                 'label' => 'Title'
@@ -59,36 +83,39 @@ class ListingAdmin extends Admin
             $descriptions[$locale] = array(
                 'label' => 'Description'
             );
+            $rules[$locale] = array(
+                'label' => 'Rules'
+            );
         }
 
         $formMapper
             ->with('admin.listing.title')
             ->add(
                 'status',
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Listing::$statusValues,
-                    'empty_value' => 'admin.listing.status.label',
+                    'choices' => array_flip(Listing::$statusValues),
+                    'placeholder' => 'admin.listing.status.label',
                     'translation_domain' => 'cocorico_listing',
-                    'label' => 'admin.listing.status.label'
+                    'label' => 'admin.listing.status.label',
                 )
             )
             ->add(
                 'adminNotation',
-                'choice',
+                ChoiceType::class,
                 array(
                     'choices' => array_combine(
+                        range(0, 10, 0.5),
                         array_map(
                             function ($num) {
                                 return number_format($num, 1);
                             },
                             range(0, 10, 0.5)
-                        ),
-                        range(0, 10, 0.5)
+                        )
                     ),
-                    'empty_value' => 'admin.listing.admin_notation.label',
+                    'placeholder' => 'admin.listing.admin_notation.label',
                     'label' => 'admin.listing.admin_notation.label',
-                    'required' => false
+                    'required' => false,
                 )
             )
             ->add(
@@ -100,7 +127,7 @@ class ListingAdmin extends Admin
             )
             ->add(
                 'translations',
-                'a2lix_translations',
+                TranslationsType::class,
                 array(
                     'locales' => $this->locales,
                     'required_locales' => $this->locales,
@@ -113,8 +140,13 @@ class ListingAdmin extends Admin
                             'field_type' => 'textarea',
                             'locale_options' => $descriptions,
                         ),
+                        'rules' => array(
+                            'field_type' => 'textarea',
+                            'locale_options' => $rules,
+                            'required' => false,
+                        ),
                         'slug' => array(
-                            'field_type' => 'hidden'
+                            'display' => false
                         )
                     ),
                     'label' => 'Descriptions'
@@ -122,48 +154,80 @@ class ListingAdmin extends Admin
             )
             ->add(
                 'user',
-                null,
+                'sonata_type_model',
                 array(
+                    'query' => $offererQuery,
                     'disabled' => true,
                     'label' => 'admin.listing.user.label'
                 )
             )
             ->add(
-                'images',
-                'collection',
+                'listingListingCategories',
+                null,
                 array(
-                    'type' => new ListingImageType(),
+                    'disabled' => true,
+                    'label' => 'admin.listing.categories.label'
+                )
+            )
+            ->add(
+                'images',
+                CollectionType::class,
+                array(
+                    'entry_type' => ListingImageType::class,
                     'by_reference' => false,
                     'required' => false,
-                    'disabled' => false,
+                    'disabled' => true,
                     'prototype' => true,
-                    'allow_add' => true,
-                    'allow_delete' => true,
-                    'options' => array(
-                        'required' => true,
-                        'disabled' => false
-                    ),
+                    'allow_add' => false,
+                    'allow_delete' => false,
+
                     'label' => 'admin.listing.images.label'
                 )
             )
             ->add(
                 'price',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.listing.price.label',
                     'include_vat' => $this->includeVat
                 )
-            )
+            );
+
+        if (array_key_exists("CocoricoListingDepositBundle", $this->bundles)) {
+            $formMapper
+                ->add(
+                    'amountDeposit',
+                    PriceType::class,
+                    array(
+                        'disabled' => true,
+                        'label' => 'listing_edit.form.deposit',
+                        'required' => false,
+                    ),
+                    array(
+                        'translation_domain' => 'cocorico_listing_deposit',
+                    )
+                );
+        }
+
+        $formMapper
             ->add(
                 'cancellationPolicy',
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Listing::$cancellationPolicyValues,
-                    'empty_value' => 'admin.listing.cancellation_policy.label',
+                    'choices' => array_flip(Listing::$cancellationPolicyValues),
+                    'placeholder' => 'admin.listing.cancellation_policy.label',
                     'disabled' => true,
                     'label' => 'admin.listing.cancellation_policy.label',
-                    'translation_domain' => 'cocorico_listing'
+                    'translation_domain' => 'cocorico_listing',
+                )
+            )
+            ->add(
+                'location.completeAddress',
+                'text',
+                array(
+                    'disabled' => true,
+                    'label' => 'admin.listing.location.label'
                 )
             )
             ->add(
@@ -183,8 +247,6 @@ class ListingAdmin extends Admin
                 )
             )
 //            ->end()
-//            ->with('Location')
-//            ->end()
 //            ->with('Characteristics')
 //            ->add(
 //                'listingListingCharacteristics',
@@ -195,13 +257,32 @@ class ListingAdmin extends Admin
 //                )
 //            )
             ->end();
+
+
+        if (array_key_exists("CocoricoCarrierBundle", $this->bundles)) {
+            $formMapper
+                ->with('admin.booking.delivery')
+                ->add(
+                    'pallets',
+                    'number',
+                    array(
+                        'label' => 'listing.form.pallets',
+                        'required' => true
+                    ),
+                    array(
+                        'translation_domain' => 'cocorico_carrier_listing',
+                    )
+                )
+                ->end();
+        }
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
             ->add(
-                'fullname',
+                'fullName',
                 'doctrine_orm_callback',
                 array(
                     'callback' => array($this, 'getFullNameFilter'),
@@ -222,7 +303,7 @@ class ListingAdmin extends Admin
                 array('label' => 'admin.listing.user_phone.label')
             )
             ->add(
-                'categories',
+                'listingListingCategories.category',
                 null,
                 array('label' => 'admin.listing.categories.label')
             )
@@ -230,11 +311,11 @@ class ListingAdmin extends Admin
                 'status',
                 'doctrine_orm_string',
                 array(),
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Listing::$statusValues,
+                    'choices' => array_flip(Listing::$statusValues),
                     'translation_domain' => 'cocorico_listing',
-                    'label' => 'admin.listing.status.label'
+                    'label' => 'admin.listing.status.label',
                 )
             )
             ->add(
@@ -370,6 +451,7 @@ class ListingAdmin extends Admin
         return false;
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -419,10 +501,9 @@ class ListingAdmin extends Admin
         $listMapper
             ->add(
                 'updatedAt',
-                null,
+                'date',
                 array(
                     'label' => 'admin.listing.updated_at.label',
-                    'format' => 'd/m/Y'
                 )
             );
 
@@ -433,7 +514,6 @@ class ListingAdmin extends Admin
                     'string',
                     array(
                         'template' => 'CocoricoSonataAdminBundle::impersonating.html.twig',
-                        'label' => 'admin.listing.impersonating.label',
                     )
                 );
         }
@@ -503,9 +583,10 @@ class ListingAdmin extends Admin
         $datagrid = $this->getDatagrid();
         $datagrid->buildPager();
 
-        $datasourceit = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
-        $datasourceit->setDateTimeFormat('d M Y'); //change this to suit your needs
-        return $datasourceit;
+        $dataSourceIt = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
+        $dataSourceIt->setDateTimeFormat('d M Y'); //change this to suit your needs
+
+        return $dataSourceIt;
     }
 
     protected function configureRoutes(RouteCollection $collection)

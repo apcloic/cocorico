@@ -10,15 +10,10 @@
     <main id="main" role="main">
         <div class="container">
             <div class="row">
-
-                <h1 class="hidden">main heading text</h1>
                 <!-- breadcrumbs -->
-                {{ render(
-                controller(
-                'CocoricoBreadcrumbBundle:Breadcrumbs:breadcrumb',
-                { routeName: app.request.attributes.get('_route') }
-                )
-                ) }}
+                {{ render(controller('CocoricoBreadcrumbBundle:Breadcrumbs:index',{
+                    request: app.request
+                })) }}
 
                 <!-- main-tabs -->
                 <div class="main-tabs col-xs-12">

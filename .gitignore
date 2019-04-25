@@ -1,6 +1,7 @@
-app/bootstrap.php.cache
+app/DoctrineMigrations
 app/spool
 app/cache
+app/bootstrap.php.cache
 !app/cache/.gitkeep
 app/config/parameters.yml
 app/config/parameters_test.yml
@@ -9,6 +10,9 @@ app/SymfonyRequirements.php
 app/logs
 !app/logs/.gitkeep
 !app/build/logs/.gitkeep
+
+var/
+!var/.gitkeep
 
 bin/chromedriver
 bin/chromedriver.exe
@@ -20,6 +24,7 @@ bin/doctrine.bat
 bin/security-checker
 bin/security-checker.bat
 
+composer.dev.json
 composer.phar
 .idea/*
 
@@ -52,6 +57,8 @@ web/media/cache/*
 web/images/Thumbs.db
 web/assets/*
 web/Thumbs.db
+web/sitemap.xml
+web/phpdocs/*
 
 watch
 
@@ -65,9 +72,22 @@ behat.yml
 features/_datas/cocorico_test.db
 tmp/patch
 
-php
+/php
+web/myco*.php
 
 /auth.json
 
+
 tmp/*
+tmp/*.*
 tmp/bu
+tmp/tmp.json
+
+#Mangopay
+!tmp/mangopay/
+!tmp/mangopay/.gitkeep
+tmp/mangopay/MangoPaySdkStorage.tmp.php
+
+doc/phpdocs/sami.phar
+
+phpunit.xml

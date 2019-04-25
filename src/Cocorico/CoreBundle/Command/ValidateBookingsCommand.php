@@ -52,19 +52,17 @@ class ValidateBookingsCommand extends ContainerAwareCommand
             ->setHelp("Usage php app/console cocorico:bookings:validate");
     }
 
+    /** @inheritdoc */
     public function execute(InputInterface $input, OutputInterface $output)
     {
         $moment = $this->getContainer()->getParameter('cocorico.booking.validated_moment');
         $delay = $this->getContainer()->getParameter('cocorico.booking.validated_delay');
-        if ($input->getOption('test') && $input->hasOption('delay') && $input->getOption('moment')) {
+        if ($input->getOption('test') && $input->getOption('delay') && $input->getOption('moment')) {
             $moment = $input->getOption('moment');
             $delay = $input->getOption('delay');
         }
 
-        $container = $this->getContainer();
-
-        $result = $container->get('cocorico.booking.manager')->validateBookings($moment, $delay);
-
+        $result = $this->getContainer()->get('cocorico.booking.manager')->validateBookings($moment, $delay);
         $output->writeln($result . " booking(s) validated");
     }
 

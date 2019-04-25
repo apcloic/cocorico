@@ -13,8 +13,9 @@ namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
 use Cocorico\CoreBundle\Entity\Booking;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class BookingStatusFilterType extends AbstractType
 {
@@ -27,24 +28,24 @@ class BookingStatusFilterType extends AbstractType
         $builder
             ->add(
                 'status',
-                'choice',
+                ChoiceType::class,
                 array(
                     'mapped' => false,
                     /** @Ignore */
                     'label' => false,
-                    'choices' => Booking::getVisibleStatusValues(),
-                    'empty_value' => 'admin.booking.status.label',
-                    'translation_domain' => 'cocorico_booking'
+                    'choices' => array_flip(Booking::getVisibleStatusValues()),
+                    'placeholder' => 'admin.booking.status.label',
+                    'translation_domain' => 'cocorico_booking',
                 )
             );
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
         $resolver->setDefaults(
             array(
                 'csrf_protection' => false,
@@ -54,11 +55,10 @@ class BookingStatusFilterType extends AbstractType
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'booking_status_filter';
     }
-
 }

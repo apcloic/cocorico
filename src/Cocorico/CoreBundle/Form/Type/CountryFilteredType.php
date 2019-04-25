@@ -14,7 +14,7 @@ namespace Cocorico\CoreBundle\Form\Type;
 
 use Symfony\Component\Form\Extension\Core\Type\CountryType as BaseCountryType;
 use Symfony\Component\Intl\Intl;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class CountryFilteredType extends BaseCountryType
 {
@@ -27,7 +27,6 @@ class CountryFilteredType extends BaseCountryType
      */
     public function __construct($countries, $favoriteCountries)
     {
-        //print_r($countries);
         $this->countries = $countries;
         $this->favoriteCountries = $favoriteCountries;
     }
@@ -35,21 +34,21 @@ class CountryFilteredType extends BaseCountryType
     /**
      * {@inheritdoc}
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $countries = Intl::getRegionBundle()->getCountryNames();
         if ($this->countries) {//Filtering countries app parameters
             $countries = array_intersect_key(
-                Intl::getRegionBundle()->getCountryNames(),
+                $countries,
                 array_flip($this->countries)
             );
         }
 
         $resolver->setDefaults(
             array(
-                'choices' => $countries,
-                //'data' => $this->favoriteCountries[0],
+                'choices' => array_flip($countries),
                 'preferred_choices' => $this->favoriteCountries,
+                'required' => true,
             )
         );
     }
@@ -65,7 +64,7 @@ class CountryFilteredType extends BaseCountryType
     /**
      * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'country_filtered';
     }

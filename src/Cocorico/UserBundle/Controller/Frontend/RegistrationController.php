@@ -13,95 +13,117 @@
 namespace Cocorico\UserBundle\Controller\Frontend;
 
 use Cocorico\UserBundle\Entity\User;
-use Cocorico\UserBundle\Form\Handler\RegistrationFormHandler;
+use Cocorico\UserBundle\Form\Type\RegistrationFormType;
 use FOS\UserBundle\Model\UserInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
-use Symfony\Component\DependencyInjection\ContainerAware;
+use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use Symfony\Component\Security\Core\Exception\AuthenticationCredentialsNotFoundException;
 
 /**
  * Class RegistrationController
  *
  */
-class RegistrationController extends ContainerAware
+class RegistrationController extends Controller
 {
-
     /**
-     * Register user
-     *
      * @Route("/register", name="cocorico_user_register")
      *
-     * @return null|RedirectResponse|\Symfony\Component\HttpFoundation\Response
+     * @param Request $request
+     *
+     * @return Response
+     * @throws AuthenticationCredentialsNotFoundException
+     * @throws \RuntimeException
      */
-    public function registerAction()
+    public function registerAction(Request $request)
     {
-        $session = $this->container->get('session');
-        $router = $this->container->get('router');
-        if ($this->container->get('security.context')->isGranted('IS_AUTHENTICATED_FULLY')) {
-            if (!$session->has('profile')) {
-                $session->set('profile', 'asker');
-            }
-            $url = $router->generate('cocorico_home');
-
-            return new RedirectResponse($url);
-        } else {
-            $form = $this->container->get('fos_user.registration.form');
-            /** @var RegistrationFormHandler $formHandler */
-            $formHandler = $this->container->get('fos_user.registration.form.handler');
-            $confirmationEnabled = $this->container->getParameter('fos_user.registration.confirmation.enabled');
-
-            $process = $formHandler->process($confirmationEnabled);
-            if ($process) {
-                $user = $form->getData();
-
-                $session->getFlashBag()->add(
-                    'success',
-                    $this->container->get('translator')->trans('user.register.success', array(), 'cocorico_user')
-                );
-
-                if ($confirmationEnabled) {
-                    $session->set('cocorico_user_send_confirmation_email/email', $user->getEmail());
-                    $url = $router->generate('cocorico_user_registration_check_email');
-                } else {
-                    $url = $router->generate('cocorico_user_register_confirmed');
-                }
-
-                return new RedirectResponse($url);
-            }
-
-            return $this->container->get('templating')->renderResponse(
-                'CocoricoUserBundle:Frontend/Registration:register.html.twig',
-                array(
-                    'form' => $form->createView(),
-                )
-            );
+        if ($this->get('security.authorization_checker')->isGranted('IS_AUTHENTICATED_FULLY')) {
+            return $this->redirectToRoute('cocorico_home');
         }
 
+        $user = $this->get('cocorico_user.user_manager')->createUser();
+        $form = $this->createCreateForm($user);
+        $confirmation = $this->getParameter('cocorico.registration_confirmation');
+
+        $process = $this->get('cocorico_user.form.handler.registration')->process($form, $confirmation);
+        if ($process) {
+            /** @var User $user */
+            $user = $form->getData();
+
+            $this->get('session')->getFlashBag()->add(
+                'success',
+                $this->get('translator')->trans('user.register.success', array(), 'cocorico_user')
+            );
+
+            if ($confirmation) {
+                $this->get('session')->set('cocorico_user_send_confirmation_email/email', $user->getEmail());
+                $url = $this->get('router')->generate('cocorico_user_registration_check_email');
+            } else {
+                $url = $request->get('redirect_to') ? $request->get('redirect_to') :
+                    $this->get('router')->generate('cocorico_user_register_confirmed');
+            }
+
+            return new RedirectResponse($url);
+        }
+
+        return $this->render(
+            'CocoricoUserBundle:Frontend/Registration:register.html.twig',
+            array(
+                'form' => $form->createView(),
+            )
+        );
     }
 
 
     /**
-     *  Tell the user to check his email provider
+     * Creates a Registration form
+     *
+     * @param User $user The entity
+     *
+     * @return \Symfony\Component\Form\Form The form
+     */
+    private function createCreateForm(User $user)
+    {
+        $form = $this->get('form.factory')->createNamed(
+            'user_registration',
+            RegistrationFormType::class,
+            $user
+        );
+
+        return $form;
+    }
+
+
+    /**
+     * Tell the user to check their email provider.
      *
      * @Route("/check-email", name="cocorico_user_registration_check_email")
      * @Method("GET")
      *
-     * @return null|RedirectResponse|\Symfony\Component\HttpFoundation\Response
+     * @return RedirectResponse|Response
+     * @throws NotFoundHttpException
      */
     public function checkEmailAction()
     {
-        $email = $this->container->get('session')->get('cocorico_user_send_confirmation_email/email');
-        $this->container->get('session')->remove('cocorico_user_send_confirmation_email/email');
-        $user = $this->container->get('cocorico_user.user_manager')->findUserByEmail($email);
+        $email = $this->get('session')->get('cocorico_user_send_confirmation_email/email');
+
+        if (empty($email)) {
+            return new RedirectResponse($this->get('router')->generate('cocorico_user_register'));
+        }
+
+        $this->get('session')->remove('cocorico_user_send_confirmation_email/email');
+        $user = $this->get('cocorico_user.user_manager')->findUserByEmail($email);
 
         if (null === $user) {
             throw new NotFoundHttpException(sprintf('The user with email "%s" does not exist', $email));
         }
 
-        return $this->container->get('templating')->renderResponse(
+        return $this->render(
             'CocoricoUserBundle:Frontend/Registration:checkEmail.html.twig',
             array(
                 'user' => $user,
@@ -109,45 +131,41 @@ class RegistrationController extends ContainerAware
         );
     }
 
+
     /**
-     * Receive the confirmation token from user email provider, login the user
+     * Receive the confirmation token from user email provider, login the user.
      *
      * @Route("/register-confirmation/{token}", name="cocorico_user_register_confirmation")
      * @Method("GET")
      *
-     * @param string $token
+     * @param Request $request
+     * @param string  $token
      *
+     * @return Response
      *
-     * @return null|RedirectResponse|\Symfony\Component\HttpFoundation\Response
      * @throws NotFoundHttpException
      */
-    public function confirmAction($token)
+    public function confirmAction(Request $request, $token)
     {
         /** @var User $user */
-        $user = $this->container->get('fos_user.user_manager')->findUserByConfirmationToken($token);
+        $user = $this->get('cocorico_user.user_manager')->findUserByConfirmationToken($token);
 
         if (null === $user) {
             throw new NotFoundHttpException(sprintf('The user with confirmation token "%s" does not exist', $token));
         }
 
         $user->setConfirmationToken(null);
-        $user->setLastLogin(new \DateTime());
         $user->setEmailVerified(true);
+        $user->setLastLogin(new \DateTime());
 
-        /** @var RegistrationFormHandler $formHandler */
-        $formHandler = $this->container->get('fos_user.registration.form.handler');
-        $formHandler->handleRegistration($user);
+        $this->get('cocorico_user.form.handler.registration')->handleRegistration($user);
 
-        $this->container->get('cocorico_user.mailer.twig_swift')->sendAccountCreatedMessageToUser($user);
-
-        $response = new RedirectResponse($this->container->get('router')->generate('cocorico_user_register_confirmed'));
-
-        return $response;
+        return new RedirectResponse($this->get('router')->generate('cocorico_user_register_confirmed'));
     }
 
 
     /**
-     * Tell the user his account is now confirmed
+     * Tell the user his account is now confirmed.
      *
      * @Route("/register-confirmed", name="cocorico_user_register_confirmed")
      *
@@ -156,16 +174,29 @@ class RegistrationController extends ContainerAware
      */
     public function confirmedAction()
     {
-        $user = $this->container->get('security.context')->getToken()->getUser();
+        $user = $this->getUser();
         if (!is_object($user) || !$user instanceof UserInterface) {
             throw new AccessDeniedException('This user does not have access to this section.');
         }
 
-        return $this->container->get('templating')->renderResponse(
+        return $this->render(
             'CocoricoUserBundle:Frontend/Registration:confirmed.html.twig',
             array(
                 'user' => $user,
+                'targetUrl' => $this->getTargetUrlFromSession(),
             )
         );
+    }
+
+    /**
+     * @return mixed
+     */
+    private function getTargetUrlFromSession()
+    {
+        $key = sprintf('_security.%s.target_path', $this->get('security.token_storage')->getToken()->getProviderKey());
+
+        if ($this->get('session')->has($key)) {
+            return $this->get('session')->get($key);
+        }
     }
 }

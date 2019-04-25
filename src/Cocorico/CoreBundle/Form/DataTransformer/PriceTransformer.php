@@ -65,6 +65,10 @@ class PriceTransformer implements DataTransformerInterface
     public function reverseTransform($value)
     {
         if (!$value) {
+            if ($value == 0) {
+                return 0;
+            }
+
             return null;
         }
 
@@ -82,7 +86,7 @@ class PriceTransformer implements DataTransformerInterface
             throw new TransformationFailedException();
         }
 
-        return $value * 100;
+        return strval($value * 100);
     }
 
 }

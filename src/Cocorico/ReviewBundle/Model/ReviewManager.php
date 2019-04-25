@@ -51,20 +51,20 @@ class ReviewManager extends BaseManager
     }
 
     /**
-     * getUserReviews will retrun the paginator object of the reviews added or made for
-     * the user object provided
+     * getUserReviews will return the paginator object of the reviews added or made for the user object provided
      *
      * @param  string  $userType
      * @param  User    $user
-     * @param  boolean $addedReview
+     * @param  string  $type 'made' or 'received'
      * @param  integer $page
-     * @return Review
+     *
+     * @return Paginator
      */
-    public function getUserReviews($userType, User $user, $addedReview = true, $page = 1)
+    public function getUserReviews($userType, User $user, $type, $page = 1)
     {
         $queryBuilder = $this->getRepository()
             ->createQueryBuilder('r')
-            ->addSelect("b, l, t, i, rb, rt, rbi, u")
+            ->addSelect("b, l, t, i, rb, rbi, rt, rti, u")
             ->leftJoin('r.booking', 'b')
             ->leftJoin('b.user', 'u')
             ->leftJoin('b.listing', 'l')
@@ -72,10 +72,12 @@ class ReviewManager extends BaseManager
             ->leftJoin('r.reviewBy', 'rb')
             ->leftJoin('rb.images', 'rbi')
             ->leftJoin('r.reviewTo', 'rt')
-            ->leftJoin('l.translations', 't');
+            ->leftJoin('rt.images', 'rti')
+            ->leftJoin('l.translations', 't')
+            ->orderBy('r.createdAt', 'DESC');
 
         // adds the condition about which reviews need to be fetched.
-        if ($addedReview) {
+        if ($type == 'made') {
             $queryBuilder->where('r.reviewBy = :user');
         } else {
             $queryBuilder->where('r.reviewTo = :user');
@@ -102,13 +104,13 @@ class ReviewManager extends BaseManager
     }
 
     /**
-     * checkReviewAllowed will check if the user already added his/her reviews or not
+     * userHasReviewed will check if the user already added his/her reviews or not
      *
      * @param  Booking $booking
      * @param  User    $user
      * @return Review | boolean
      */
-    public function checkReviewAllowed(Booking $booking, User $user)
+    public function userHasReviewed(Booking $booking, User $user)
     {
         $queryBuilder = $this->getRepository()
             ->createQueryBuilder('r')
@@ -127,14 +129,14 @@ class ReviewManager extends BaseManager
     }
 
     /**
-     * getUnreviewedBooking will fetch unreviewed bookings from the booking table
+     * getUnreviewedBookings will fetch unreviewed bookings from the booking table
      * by user, and already added reviews
      *
      * @param  string $userType
      * @param  User   $user
-     * @return Array Booking | Null
+     * @return array Booking | Null
      */
-    public function getUnreviewedBooking($userType, User $user)
+    public function getUnreviewedBookings($userType, User $user)
     {
         $reviewedBookingIds = $this->getRepository()->getReviewedBookingIds($user);
 
@@ -150,9 +152,9 @@ class ReviewManager extends BaseManager
      * getListingReview returns the list of reviews available for the specific listing
      *
      * @param  Listing $listing
-     * @return Array objects
+     * @return array objects
      */
-    public function getListingReview(Listing $listing)
+    public function getListingReviews(Listing $listing)
     {
         $queryBuilder = $this->getRepository()
             ->createQueryBuilder('r')
@@ -162,6 +164,7 @@ class ReviewManager extends BaseManager
             ->leftJoin('r.reviewBy', 'u')
             ->where('r.reviewBy != :owner')
             ->andWhere('b.listing = :listing')
+            ->orderBy('r.createdAt', 'DESC')
             ->setParameter('owner', $listing->getUser())
             ->setParameter('listing', $listing);
 

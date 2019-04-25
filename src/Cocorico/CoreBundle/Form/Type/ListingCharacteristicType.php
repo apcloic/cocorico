@@ -16,6 +16,8 @@ use Cocorico\CoreBundle\Entity\ListingCharacteristicValue;
 use Cocorico\CoreBundle\Repository\ListingCharacteristicRepository;
 use Doctrine\ORM\EntityManager;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Form\Extension\Core\Type\CollectionType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
@@ -23,9 +25,8 @@ use Symfony\Component\HttpFoundation\RequestStack;
 
 class ListingCharacteristicType extends AbstractType
 {
-
-    private $request;
     private $locale;
+    private $entityManager;
 
     /**
      * @param RequestStack  $requestStack
@@ -33,8 +34,7 @@ class ListingCharacteristicType extends AbstractType
      */
     public function __construct(RequestStack $requestStack, EntityManager $entityManager)
     {
-        $this->request = $requestStack->getCurrentRequest();
-        $this->locale = $this->request->getLocale();
+        $this->locale = $requestStack->getCurrentRequest()->getLocale();
         $this->entityManager = $entityManager;
     }
 
@@ -47,10 +47,10 @@ class ListingCharacteristicType extends AbstractType
             FormEvents::PRE_SET_DATA,
             function (FormEvent $event) {
                 /** @var ListingCharacteristicRepository $characteristicsRepository */
-                $characteristicsRepository = $this->entityManager
-                    ->getRepository("CocoricoCoreBundle:ListingCharacteristic");
-                $characteristics = $characteristicsRepository
-                    ->findAllTranslated($this->locale);
+                $characteristicsRepository = $this->entityManager->getRepository(
+                    "CocoricoCoreBundle:ListingCharacteristic"
+                );
+                $characteristics = $characteristicsRepository->findAllTranslated($this->locale);
 
                 $form = $event->getForm();
                 $data = $event->getData();
@@ -62,7 +62,7 @@ class ListingCharacteristicType extends AbstractType
 
                     $form->add(
                         $id,
-                        'choice',
+                        ChoiceType::class,
                         array(
                             'data' => $selected,
                             'required' => false,
@@ -72,7 +72,7 @@ class ListingCharacteristicType extends AbstractType
                                 'group' => $listingCharacteristic->getListingCharacteristicGroup()->getName()
                             ),
                             'mapped' => false,
-                            'choices' => $this->buildCharacteristicValuesChoices($listingCharacteristic)
+                            'choices' => $this->buildCharacteristicValuesChoices($listingCharacteristic),
                         )
                     );
                 }
@@ -90,7 +90,7 @@ class ListingCharacteristicType extends AbstractType
         $characteristics = $listingCharacteristic->getListingCharacteristicTypeValues();
         /** @var ListingCharacteristicValue $characteristic */
         foreach ($characteristics as $characteristic) {
-            $choices[$characteristic->getId()] = $characteristic->getName();
+            $choices[$characteristic->getName()] = $characteristic->getId();
         }
 
         return $choices;
@@ -101,13 +101,13 @@ class ListingCharacteristicType extends AbstractType
      */
     public function getParent()
     {
-        return 'collection';
+        return CollectionType::class;
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'listing_characteristic';
     }

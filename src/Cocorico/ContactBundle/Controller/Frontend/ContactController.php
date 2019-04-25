@@ -12,6 +12,7 @@
 namespace Cocorico\ContactBundle\Controller\Frontend;
 
 use Cocorico\ContactBundle\Entity\Contact;
+use Cocorico\ContactBundle\Form\Type\Frontend\ContactNewType;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
@@ -51,7 +52,7 @@ class ContactController extends Controller
         }
 
         return $this->render(
-            'CocoricoContactBundle:Contact:index.html.twig',
+            'CocoricoContactBundle:Frontend:index.html.twig',
             array(
                 'form' => $form->createView()
             )
@@ -69,7 +70,7 @@ class ContactController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'contact_new',
+            ContactNewType::class,
             $contact,
             array(
                 'method' => 'POST',

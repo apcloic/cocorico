@@ -11,7 +11,8 @@
 
 namespace Cocorico\ConfigBundle\Admin;
 
-use Sonata\AdminBundle\Admin\Admin;
+use Cocorico\ConfigBundle\Entity\Parameter;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
@@ -20,7 +21,7 @@ use Sonata\AdminBundle\Show\ShowMapper;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
-class ParameterAdmin extends Admin
+class ParameterAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'parameter';
@@ -31,9 +32,13 @@ class ParameterAdmin extends Admin
         '_sort_by' => 'name'
     );
 
-
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Parameter $parameter */
+        $parameter = $this->getSubject();
+
+
         $formMapper
             ->with(
                 'admin.parameter.title',
@@ -52,7 +57,7 @@ class ParameterAdmin extends Admin
             )
             ->add(
                 'value',
-                null,
+                $parameter ? $parameter->getType() : null,
                 array(
                     'label' => 'admin.parameter.value.label',
                     'required' => false
@@ -61,6 +66,8 @@ class ParameterAdmin extends Admin
             ->end();
     }
 
+
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -76,6 +83,8 @@ class ParameterAdmin extends Admin
             );
     }
 
+
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -88,7 +97,10 @@ class ParameterAdmin extends Admin
             ->add(
                 'value',
                 null,
-                array('label' => 'admin.parameter.value.label')
+                array(
+                    'label' => 'admin.parameter.value.label',
+                    'template' => 'CocoricoConfigBundle::list_parameter_value.html.twig'
+                )
             );
 
         $listMapper->add(
@@ -97,14 +109,14 @@ class ParameterAdmin extends Admin
             array(
                 'actions' => array(
                     'show' => array(),
-//                    'create' => array(),
                     'edit' => array(),
-//                    'delete' => array(),
                 )
             )
         );
     }
 
+
+    /** @inheritdoc */
     public function configureShowFields(ShowMapper $showMapper)
     {
         $showMapper
@@ -155,11 +167,8 @@ class ParameterAdmin extends Admin
 
         //Clear cache
         $php = 'php';
-        if (file_exists("/usr/bin/php54")) {//tmp
-            $php = 'php54';
-        }
         $rootDir = $kernel->getRootDir();
-        $command = $php . ' ' . $rootDir . '/console cache:clear --env=' . $kernel->getEnvironment();;
+        $command = $php . ' ' . $rootDir . '/console cache:clear --env=' . $kernel->getEnvironment();
 
         $process = new Process($command);
         try {

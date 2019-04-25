@@ -24,7 +24,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class CheckBookingsBankWiresCommand extends ContainerAwareCommand
 {
-
+    /** @inheritdoc */
     public function configure()
     {
         $this
@@ -33,12 +33,10 @@ class CheckBookingsBankWiresCommand extends ContainerAwareCommand
             ->setHelp("Usage php app/console cocorico:bookings:checkBankWires");
     }
 
+    /** @inheritdoc */
     public function execute(InputInterface $input, OutputInterface $output)
     {
-        $container = $this->getContainer();
-
-        $result = $container->get('cocorico.booking_bank_wire.manager')->checkBookingsBankWires();
-
+        $result = $this->getContainer()->get('cocorico.booking_bank_wire.manager')->checkBookingsBankWires();
         $output->writeln($result . " booking(s) bank wires checked");
     }
 

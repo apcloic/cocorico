@@ -15,6 +15,14 @@ namespace Cocorico\CoreBundle\Event;
 class BookingEvents
 {
     /**
+     * The BOOKING_INIT event occurs when a booking booking is initialized.
+     *
+     * This event allows you to set the response instead of using the default one.
+     * The event listener method receives a Cocorico\CoreBundle\Event\BookingEvent instance.
+     */
+    const BOOKING_INIT = 'cocorico.booking_new.init';
+
+    /**
      * The BOOKING_NEW_SUBMITTED event occurs when the new booking form is submitted successfully.
      *
      * This event allows you to set the response instead of using the default one.
@@ -55,4 +63,12 @@ class BookingEvents
      * The event listener method receives a Cocorico\CoreBundle\Event\BookingValidateEvent instance.
      */
     const BOOKING_VALIDATE = 'cocorico.booking.validate';
+
+    /**
+     * The BOOKING_POST_VALIDATE event occurs when a booking has been considered as done (started or finished).
+     *
+     * This event allows you to do what you want when the booking has been considered as done (offerer payment, ...).
+     * The event listener method receives a Cocorico\CoreBundle\Event\BookingValidateEvent instance.
+     */
+    const BOOKING_POST_VALIDATE = 'cocorico.booking.post_validate';
 }

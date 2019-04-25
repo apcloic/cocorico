@@ -12,6 +12,7 @@
 namespace Cocorico\CoreBundle\Controller\Dashboard\Offerer;
 
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Form\Type\Dashboard\ListingEditImagesType;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\ParamConverter;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
@@ -43,30 +44,23 @@ class ListingImageController extends Controller
      */
     public function editImagesAction(Request $request, Listing $listing)
     {
+        $translator = $this->get('translator');
         $editForm = $this->createEditImagesForm($listing);
         $editForm->handleRequest($request);
-
-        $selfUrl = $this->generateUrl(
-            'cocorico_dashboard_listing_edit_images',
-            array(
-                'id' => $listing->getId()
-            )
-        );
 
         if ($editForm->isSubmitted() && $editForm->isValid()) {
             $this->get("cocorico.listing.manager")->save($listing);
 
             $this->get('session')->getFlashBag()->add(
                 'success',
-                $this->get('translator')->trans('listing.edit.success', array(), 'cocorico_listing')
+                $translator->trans('listing.edit.success', array(), 'cocorico_listing')
             );
 
-            return $this->redirect($selfUrl);
+            return $this->redirectToRoute(
+                'cocorico_dashboard_listing_edit_images',
+                array('id' => $listing->getId())
+            );
         }
-
-        $this->get('cocorico.breadcrumbs_manager')->addListingItem($request, $listing);
-        $text = $this->get('translator')->trans('photos', array(), 'cocorico_breadcrumbs');
-        $this->get('cocorico.breadcrumbs_manager')->addItem($text, $selfUrl);
 
         return $this->render(
             'CocoricoCoreBundle:Dashboard/Listing:edit_images.html.twig',
@@ -89,7 +83,7 @@ class ListingImageController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             'listing',
-            'listing_edit_images',
+            ListingEditImagesType::class,
             $listing,
             array(
                 'action' => $this->generateUrl(

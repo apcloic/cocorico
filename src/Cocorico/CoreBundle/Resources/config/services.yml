@@ -1,16 +1,15 @@
 imports:
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/entities_manager.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/forms.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/listeners.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/param_converters.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/twig_extensions.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/validators.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/voters.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/forms_handlers.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/mailer.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/smser.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/admin.yml }
-    - { resource: @CocoricoCoreBundle/Resources/config/Services/subscribers.yml }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/entities_manager.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/forms.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/listeners.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/param_converters.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/twig_extensions.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/validators.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/voters.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/forms_handlers.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/mailer.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/admin.yml" }
+    - { resource: "@CocoricoCoreBundle/Resources/config/Services/subscribers.yml" }
 
 services:
     #Custom classes
@@ -19,6 +18,7 @@ services:
         arguments:
             - "@request_stack"
             - "%cocorico.listing_search_max_per_page%"
+        public: true
 
     #Namers
     cocorico.namer.image_namer:
@@ -42,22 +42,16 @@ services:
     #Helpers
     cocorico.helper.global:
         class: Cocorico\CoreBundle\Helper\GlobalHelper
+        arguments:
+            - "%kernel.environment%"
 
     #Translator manager
     cocorico.translator.manager: 
         class: Cocorico\CoreBundle\Model\Manager\TranslateManager
         arguments:
-            - "%cocorico.translator.client.id%"
             - "%cocorico.translator.secret.key%"
-            - "%cocorico.translator.scope.url%"
             - "%cocorico.translator.token.url%"
-            - "%cocorico.translator.grant.type%"
             - "%cocorico.translator.translate.url%"
-
-    cocorico.user_type.cookie.listener:
-        class: Cocorico\CoreBundle\Listener\UserTypeCookieListener
-        tags:
-            - { name: kernel.event_listener, event: kernel.request, method: onKernelRequest }
 
     #Extra bundles routing loader
     cocorico.extra_bundle.routing_loader:

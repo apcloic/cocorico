@@ -20,7 +20,9 @@ use Knp\DoctrineBehaviors\Model as ORMBehaviors;
  *
  * @ORM\Entity(repositoryClass="Cocorico\ContactBundle\Repository\ContactRepository")
  *
- * @ORM\Table(name="contact")
+ * @ORM\Table(name="contact",indexes={
+ *    @ORM\Index(name="created_at_c_idx", columns={"createdAt"}),
+ *  }))
  */
 class Contact extends BaseContact
 {
@@ -48,5 +50,10 @@ class Contact extends BaseContact
     public function getId()
     {
         return $this->id;
+    }
+
+    public function __toString()
+    {
+        return (string)$this->getSubject();
     }
 }

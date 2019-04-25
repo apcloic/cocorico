@@ -11,8 +11,10 @@
 
 namespace Cocorico\UserBundle\Repository;
 
+use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\EntityRepository;
 use Doctrine\ORM\NonUniqueResultException;
+use Doctrine\ORM\NoResultException;
 
 /**
  * UserRepository
@@ -28,23 +30,24 @@ class UserRepository extends EntityRepository
      * @param integer $idUser
      *
      * @return mixed
+     *
+     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     public function getActiveUser($idUser)
     {
-        $qbr = $this->createQueryBuilder('u');
-        $qbr->where('u.id = :idUser')
+        $queryBuilder = $this->createQueryBuilder('u');
+        $queryBuilder->where('u.id = :idUser')
             ->setParameter('idUser', $idUser)
             ->andWhere('u.enabled = :enabled')
             ->setParameter('enabled', 1);
 
-        return $qbr->getQuery()->getOneOrNullResult();
+        return $queryBuilder->getQuery()->getOneOrNullResult();
     }
 
     /**
      * @param $email
      *
      * @return mixed|null
-     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     public function findOneByEmail($email)
     {
@@ -61,4 +64,42 @@ class UserRepository extends EntityRepository
         }
     }
 
+    /**
+     * Get  user by id
+     *
+     * @param integer $idUser
+     *
+     * @return mixed
+     */
+    public function getFindOneQueryBuilder($idUser)
+    {
+        $queryBuilder =
+            $this->createQueryBuilder('u')
+                ->addSelect('ut')
+                ->leftJoin('u.translations', 'ut')
+                ->where('u.id = :idUser')
+                ->setParameter('idUser', $idUser);
+
+        return $queryBuilder;
+    }
+
+    /**
+     * @return array|null
+     */
+    public function findAllEnabled()
+    {
+        $queryBuilder = $this->createQueryBuilder('u')
+            ->where('u.enabled = :enabled')
+            ->andWhere('u.roles NOT LIKE :roles')
+            ->setParameter('enabled', true)
+            ->setParameter('roles', '%ROLE_SUPER_ADMIN%');
+
+        try {
+            $query = $queryBuilder->getQuery();
+
+            return $query->getResult(AbstractQuery::HYDRATE_ARRAY);
+        } catch (NoResultException $e) {
+            return null;
+        }
+    }
 }

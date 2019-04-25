@@ -53,8 +53,8 @@ class ListingDiscountController extends Controller
     private function createDiscountForm(Listing $listing)
     {
         $form = $this->get('form.factory')->createNamed(
-            'listing',
-            new ListingEditDiscountType(),
+            'listing_discount',
+            ListingEditDiscountType::class,
             $listing,
             array(
                 'method' => 'POST',
@@ -96,6 +96,10 @@ class ListingDiscountController extends Controller
                 $this->get('translator')->trans('listing.edit_discount.success', array(), 'cocorico_listing')
             );
 
+            return $this->redirectToRoute(
+                'cocorico_dashboard_listing_edit_discount',
+                array('id' => $listing->getId())
+            );
         }
 
         if ($request->isXmlHttpRequest()) {

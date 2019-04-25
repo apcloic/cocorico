@@ -11,30 +11,35 @@
 
 namespace Cocorico\CoreBundle\Admin;
 
+use A2lix\TranslationFormBundle\Form\Type\TranslationsType;
 use Cocorico\CoreBundle\Entity\ListingCategory;
-use Sonata\AdminBundle\Admin\Admin;
+use Doctrine\ORM\QueryBuilder;
+use Exporter\Source\DoctrineORMQuerySourceIterator;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Validator\Constraints\NotBlank;
 
-class ListingCategoryAdmin extends Admin
+class ListingCategoryAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'listing-category';
     protected $locales;
-
-    // setup the default sort column and order
-    protected $datagridValues = array(
-        '_sort_order' => 'ASC',
-        '_sort_by' => 'id'
-    );
+    protected $bundles;
 
     public function setLocales($locales)
     {
         $this->locales = $locales;
     }
 
+    public function setBundlesEnabled($bundles)
+    {
+        $this->bundles = $bundles;
+    }
+
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
         /** @var ListingCategory $subject */
@@ -45,11 +50,11 @@ class ListingCategoryAdmin extends Admin
         foreach ($this->locales as $i => $locale) {
             $titles[$locale] = array(
                 'label' => 'Name',
-                'required' => true
+                'constraints' => array(new NotBlank())
             );
             $descriptions[$locale] = array(
                 'label' => 'Description',
-                'required' => true
+                'constraints' => array(new NotBlank())
             );
         }
 
@@ -57,7 +62,7 @@ class ListingCategoryAdmin extends Admin
             ->with('admin.listing_category.title')
             ->add(
                 'translations',
-                'a2lix_translations',
+                TranslationsType::class,
                 array(
                     'locales' => $this->locales,
                     'required_locales' => $this->locales,
@@ -65,6 +70,9 @@ class ListingCategoryAdmin extends Admin
                         'name' => array(
                             'field_type' => 'text',
                             'locale_options' => $titles,
+                        ),
+                        'slug' => array(
+                            'display' => false
                         )
                     ),
                     /** @Ignore */
@@ -77,10 +85,26 @@ class ListingCategoryAdmin extends Admin
                 array(
                     'label' => 'admin.listing_category.parent.label'
                 )
-            )
+            );
+
+        if (array_key_exists("CocoricoListingCategoryFieldBundle", $this->bundles)) {
+            $formMapper
+                ->add(
+                    'fields',
+                    null,
+                    array(
+                        'label' => 'admin.listing_category.fields.label',
+                        'disabled' => true,
+                        'choice_label' => 'field'
+                    )
+                );
+        }
+
+        $formMapper
             ->end();
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -96,6 +120,7 @@ class ListingCategoryAdmin extends Admin
             );
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -113,6 +138,17 @@ class ListingCategoryAdmin extends Admin
                 array('label' => 'admin.listing_category.parent.label')
             );
 
+        if (array_key_exists("CocoricoListingCategoryFieldBundle", $this->bundles)) {
+            $listMapper
+                ->add(
+                    'fields',
+                    null,
+                    array(
+                        'label' => 'admin.listing_category.fields.label',
+                        'associated_property' => 'field'
+                    )
+                );
+        }
 
         $listMapper->add(
             '_action',
@@ -131,8 +167,21 @@ class ListingCategoryAdmin extends Admin
         return array(
             'Id' => 'id',
             'name' => 'name',
-            'category' => 'parent'
+            'parent' => 'parent',
         );
+    }
+
+    public function createQuery($context = 'list')
+    {
+        /** @var QueryBuilder $query */
+        $query = parent::createQuery($context);
+
+        if ($context === 'list') {
+            $query->orderBy('o.root', 'ASC');
+            $query->addOrderBy('o.lft', 'ASC');
+        }
+
+        return $query;
     }
 
     public function getDataSourceIterator()
@@ -140,9 +189,11 @@ class ListingCategoryAdmin extends Admin
         $datagrid = $this->getDatagrid();
         $datagrid->buildPager();
 
-        $datasourceit = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
-        $datasourceit->setDateTimeFormat('d M Y'); //change this to suit your needs
-        return $datasourceit;
+        /** @var DoctrineORMQuerySourceIterator $dataSourceIt */
+        $dataSourceIt = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
+        $dataSourceIt->setDateTimeFormat('d M Y');
+
+        return $dataSourceIt;
     }
 
     public function getBatchActions()

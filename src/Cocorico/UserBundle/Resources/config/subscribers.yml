@@ -1,5 +1,0 @@
-services:
-    cocorico.user.subscriber:
-        class: Cocorico\UserBundle\Event\UserSubscriber
-        tags:
-            - { name: kernel.event_subscriber}

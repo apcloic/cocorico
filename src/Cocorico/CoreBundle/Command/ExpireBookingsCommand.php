@@ -32,10 +32,16 @@ class ExpireBookingsCommand extends ContainerAwareCommand
             ->setName('cocorico:bookings:expire')
             ->setDescription('Expire Bookings.')
             ->addOption(
-                'delay',
+                'expiration-delay',
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'Booking expiration delay in minutes. To use only on no prod env'
+            )
+            ->addOption(
+                'acceptation-delay',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Booking acceptation delay in minutes. To use only on no prod env'
             )
             ->addOption(
                 'test',
@@ -46,20 +52,24 @@ class ExpireBookingsCommand extends ContainerAwareCommand
             ->setHelp("Usage php app/console cocorico:bookings:expire");
     }
 
+    /** @inheritdoc */
     public function execute(InputInterface $input, OutputInterface $output)
     {
-        $delay = $this->getContainer()->getParameter('cocorico.booking.expiration_delay');
-        if ($input->getOption('test') && $input->hasOption('delay')) {
-            $delay = $input->getOption('delay');
+        $expirationDelay = $acceptationDelay = null;
+
+        if ($input->getOption('test') && $input->getOption('expiration-delay') &&
+            $input->getOption('acceptation-delay')
+        ) {
+            $expirationDelay = $input->getOption('expiration-delay');
+            $acceptationDelay = $input->getOption('acceptation-delay');
         }
 
-        $container = $this->getContainer();
-        $bookingManager = $container->get('cocorico.booking.manager');
-
-        $result = $bookingManager->expireBookings($delay);
+        $result = $this->getContainer()->get('cocorico.booking.manager')->expireBookings(
+            $expirationDelay,
+            $acceptationDelay
+        );
 
         $output->writeln($result . " booking(s) expired");
-
     }
 
 }

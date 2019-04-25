@@ -8,14 +8,16 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
+
 namespace Cocorico\CoreBundle\Twig;
 
+use Cocorico\CoreBundle\Utils\PHP;
 use Symfony\Component\Intl\Intl;
 
 /**
  * CountryExtension will render the name of the country
  */
-class CountryExtension extends \Twig_Extension
+class CountryExtension extends \Twig_Extension implements \Twig_Extension_GlobalsInterface
 {
 
 //    private $request;
@@ -26,6 +28,14 @@ class CountryExtension extends \Twig_Extension
 //            $this->locale = $this->request->getLocale();
 //        }
 //    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getGlobals()
+    {
+        return array();
+    }
 
     /** @inheritdoc */
     public function getFilters()
@@ -59,6 +69,7 @@ class CountryExtension extends \Twig_Extension
     {
         return array(
             new \Twig_SimpleFunction('countries_translated', array($this, 'getCountriesTranslated')),
+            new \Twig_SimpleFunction('culture_code', array($this, 'getCultureCode')),
         );
     }
 
@@ -73,6 +84,16 @@ class CountryExtension extends \Twig_Extension
         return Intl::getRegionBundle()->getCountryNames($locale);
     }
 
+    /**
+     * Get culture code  (ex : 'en_GB') from locale
+     *
+     * @param $locale
+     * @return null|string
+     */
+    public function getCultureCode($locale)
+    {
+        return PHP::locale_get_culture($locale);
+    }
 
     /** @inheritdoc */
     public function getName()

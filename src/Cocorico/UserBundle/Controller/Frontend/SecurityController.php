@@ -13,91 +13,94 @@
 namespace Cocorico\UserBundle\Controller\Frontend;
 
 use Cocorico\UserBundle\Form\Type\LoginFormType;
-use FOS\UserBundle\Controller\SecurityController as BaseController;
 use JMS\TranslationBundle\Model\Message;
 use JMS\TranslationBundle\Translation\TranslationContainerInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
-use Symfony\Component\HttpFoundation\RedirectResponse;
-use Symfony\Component\Security\Core\SecurityContext;
+use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\Security\Core\Exception\AuthenticationCredentialsNotFoundException;
+use Symfony\Component\Security\Core\Exception\AuthenticationException;
+use Symfony\Component\Security\Core\Security;
 
 /**
  * Class SecurityController
  *
  */
-class SecurityController extends BaseController implements TranslationContainerInterface
+class SecurityController extends Controller implements TranslationContainerInterface
 {
     /**
-     *
      * @Route("/login", name="cocorico_user_login")
      *
-     * @return RedirectResponse|\Symfony\Component\HttpFoundation\Response
+     * @param Request $request
+     *
+     * @return Response
+     * @throws AuthenticationCredentialsNotFoundException
      */
-    public function loginAction()
+    public function loginAction(Request $request)
     {
-        $session = $this->container->get('session');
-        $request = $this->container->get('request');
-        if ($this->container->get('security.context')->isGranted('IS_AUTHENTICATED_FULLY')) {
-            if (!$session->has('profile')) {
-                $session->set('profile', 'asker');
-            }
-            $url = $request->get('redirect_to') ? $request->get('redirect_to') : $this->container->get(
-                'router'
-            )->generate('cocorico_home');
+        if ($this->get('security.authorization_checker')->isGranted('IS_AUTHENTICATED_FULLY')) {
+            return $this->redirectToRoute('cocorico_home');
+        }
 
-            $response = new RedirectResponse($url);
+        /** @var $session Session */
+        $session = $request->getSession();
+
+        $authErrorKey = Security::AUTHENTICATION_ERROR;
+        $lastUsernameKey = Security::LAST_USERNAME;
+
+        // get the error if any (works with forward and redirect -- see below)
+        if ($request->attributes->has($authErrorKey)) {
+            $error = $request->attributes->get($authErrorKey);
+        } elseif (null !== $session && $session->has($authErrorKey)) {
+            $error = $session->get($authErrorKey);
+            $session->remove($authErrorKey);
         } else {
-            $form = $this->createLoginForm();
-            //$form->handleRequest($request);
+            $error = null;
+        }
 
-            // get the error if any (works with forward and redirect -- see below)
-            if ($request->attributes->has(SecurityContext::ACCESS_DENIED_ERROR)) {
-                $error = $request->attributes->get(SecurityContext::ACCESS_DENIED_ERROR);
-            } elseif (null !== $session && $session->has(SecurityContext::ACCESS_DENIED_ERROR)) {
-                $error = $session->get(SecurityContext::ACCESS_DENIED_ERROR);
-                $session->remove(SecurityContext::ACCESS_DENIED_ERROR);
-            } elseif ($request->attributes->has(SecurityContext::AUTHENTICATION_ERROR)) {
-                $error = $request->attributes->get(SecurityContext::AUTHENTICATION_ERROR);
-            } elseif (null !== $session && $session->has(SecurityContext::AUTHENTICATION_ERROR)) {
-                $error = $session->get(SecurityContext::AUTHENTICATION_ERROR);
-                $session->remove(SecurityContext::AUTHENTICATION_ERROR);
-            } else {
-                $error = '';
-            }
+        if (!$error instanceof AuthenticationException) {
+            $error = null; // The value does not come from the security component.
+        }
 
-            $translator = $this->container->get('translator');
-            if ($error) {
-                // TODO: this is a potential security risk (see http://trac.symfony-project.org/ticket/9523)
-                $error = $error->getMessage();
-                $session->getFlashBag()->add(
-                    'error',
-                    /** @Ignore */
-                    $translator->trans($error, array(), 'cocorico_user')
-                );
-            }
+        // last username entered by the user
+        $lastUsername = (null === $session) ? '' : $session->get($lastUsernameKey);
 
-            $response = $this->container->get('templating')->renderResponse(
-                '@CocoricoUser/Frontend/Security/login.html.twig',
-                array(
-                    'form' => $form->createView(),
-                )
+        $form = $this->createLoginForm($lastUsername);
+
+        if ($error) {
+            $translator = $this->get('translator');
+            $error = $error->getMessage();
+            $session->getFlashBag()->add(
+                'error',
+                /** @Ignore */
+                $translator->trans($error, array(), 'cocorico_user')
             );
         }
 
-        return $response;
+        return $this->render(
+            '@CocoricoUser/Frontend/Security/login.html.twig',
+            array(
+                'form' => $form->createView(),
+            )
+        );
     }
 
     /**
-     * @return \Symfony\Component\Form\Form|\Symfony\Component\Form\FormInterface
+     * @param $lastUsername
+     * @return \Symfony\Component\Form\FormInterface
      */
-    private function createLoginForm()
+    private function createLoginForm($lastUsername)
     {
-        $form = $this->container->get('form.factory')->createNamed(
+        $form = $this->get('form.factory')->createNamed(
             '',
-            new LoginFormType(),
+            LoginFormType::class,
             null,
             array(
                 'method' => 'POST',
-                'action' => $this->container->get('router')->generate('cocorico_user_login_check'),
+                'action' => $this->generateUrl('cocorico_user_login_check'),
+                'username' => $lastUsername
             )
         );
 
@@ -110,9 +113,8 @@ class SecurityController extends BaseController implements TranslationContainerI
      *
      * @Route("/login-check", name="cocorico_user_login_check")
      *
-     * @return \Symfony\Component\HttpFoundation\Response
+     * @throws \RuntimeException
      */
-
     public function checkAction()
     {
         throw new \RuntimeException(
@@ -124,7 +126,8 @@ class SecurityController extends BaseController implements TranslationContainerI
      * Logout user
      *
      * @Route("/logout", name="cocorico_user_logout")
-     * @return \Symfony\Component\HttpFoundation\Response
+     *
+     * @throws \RuntimeException
      */
     public function logoutAction()
     {
@@ -138,7 +141,7 @@ class SecurityController extends BaseController implements TranslationContainerI
      */
     public static function getTranslationMessages()
     {
-        $messages[] = new Message('Bad credentials', 'cocorico_user');
+        $messages[] = new Message('Bad credentials.', 'cocorico_user');
 
         return $messages;
     }

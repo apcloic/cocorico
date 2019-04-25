@@ -15,15 +15,16 @@ use Cocorico\CoreBundle\Entity\Listing;
 use Cocorico\CoreBundle\Entity\ListingImage;
 use Cocorico\CoreBundle\Form\Type\ImageType;
 use Cocorico\CoreBundle\Form\Type\ListingImageType;
+use Symfony\Component\Form\Extension\Core\Type\CollectionType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class ListingEditImagesType extends ListingEditType
 {
     /**
-     * @var array uploaded files
+     * @var array|string uploaded files
      */
     protected $uploaded;
 
@@ -32,14 +33,14 @@ class ListingEditImagesType extends ListingEditType
         $builder
             ->add(
                 'image',
-                new ImageType()
+                ImageType::class
             )
             ->add(
                 'images',
-                'collection',
+                CollectionType::class,
                 array(
                     'allow_delete' => true,
-                    'type' => new ListingImageType(),
+                    'entry_type' => ListingImageType::class,
                     /** @Ignore */
                     'label' => false
                 )
@@ -62,9 +63,8 @@ class ListingEditImagesType extends ListingEditType
         $builder->addEventListener(
             FormEvents::SUBMIT,
             function (FormEvent $event) {
-                $data = $event->getData();
                 /** @var Listing $listing */
-                $listing = $data;
+                $listing = $event->getData();
 
                 if ($this->uploaded) {
                     $nbImages = $listing->getImages()->count();
@@ -86,18 +86,19 @@ class ListingEditImagesType extends ListingEditType
 
     }
 
-
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
     }
 
-    public function getName()
+    /**
+     * {@inheritdoc}
+     */
+    public function getBlockPrefix()
     {
         return 'listing_edit_images';
     }
-
 }

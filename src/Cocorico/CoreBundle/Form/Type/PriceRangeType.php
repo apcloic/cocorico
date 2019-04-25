@@ -11,18 +11,22 @@
 
 namespace Cocorico\CoreBundle\Form\Type;
 
+
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 
 class PriceRangeType extends AbstractType
 {
+    protected $session;
     protected $currency;
 
-    public function __construct($currency)
+    public function __construct(Session $session, $currency)
     {
-        $this->currency = $currency;
+        $this->session = $session;
+        $this->currency = $this->session->get('currency', $currency);
     }
 
     public function buildForm(FormBuilderInterface $builder, array $options)
@@ -30,26 +34,26 @@ class PriceRangeType extends AbstractType
         $builder
             ->add(
                 'min',
-                'price',
+                PriceType::class,
                 array(
                     'label' => 'listing.form.price',
                     'currency' => $this->currency,
-                    'precision' => 0
+                    'scale' => 0
                 )
             )
             ->add(
                 'max',
-                'price',
+                PriceType::class,
                 array(
                     /** @Ignore */
                     'label' => false,
                     'currency' => $this->currency,
-                    'precision' => 0
+                    'scale' => 0
                 )
             );
     }
 
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
@@ -59,7 +63,10 @@ class PriceRangeType extends AbstractType
         );
     }
 
-    public function getName()
+    /**
+     * {@inheritdoc}
+     */
+    public function getBlockPrefix()
     {
         return 'price_range';
     }

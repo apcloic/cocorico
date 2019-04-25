@@ -12,7 +12,9 @@
 namespace Cocorico\CoreBundle\Controller\Dashboard\Offerer;
 
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Form\Type\Dashboard\ListingEditDurationType;
 use Cocorico\CoreBundle\Form\Type\Dashboard\ListingEditPriceType;
+use Cocorico\CoreBundle\Form\Type\Dashboard\ListingEditStatusType;
 use Cocorico\UserBundle\Entity\User;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\ParamConverter;
@@ -74,8 +76,8 @@ class ListingController extends Controller
     private function createStatusForm(Listing $listing, $view)
     {
         $form = $this->get('form.factory')->createNamed(
-            'listing',
-            'listing_edit_status',
+            'listing_status',
+            ListingEditStatusType::class,
             $listing,
             array(
                 'method' => 'POST',
@@ -161,8 +163,8 @@ class ListingController extends Controller
     private function createPriceForm(Listing $listing)
     {
         $form = $this->get('form.factory')->createNamed(
-            'listing',
-            new ListingEditPriceType(),
+            'listing_price',
+            ListingEditPriceType::class,
             $listing,
             array(
                 'method' => 'POST',
@@ -200,14 +202,12 @@ class ListingController extends Controller
             $listing = $this->get("cocorico.listing.manager")->save($listing);
             $this->addFormSuccessMessagesToFlashBag('price');
 
-            $selfUrl = $this->generateUrl(
+            return $this->redirectToRoute(
                 'cocorico_dashboard_listing_edit_price',
                 array(
                     'id' => $listing->getId()
                 )
             );
-
-            return $this->redirect($selfUrl);
         }
 
 
@@ -235,7 +235,7 @@ class ListingController extends Controller
      */
     private function getFeeAsOfferer(User $user)
     {
-        $feeAsOfferer = $this->container->getParameter('cocorico.fee_as_offerer');
+        $feeAsOfferer = $this->getParameter('cocorico.fee_as_offerer');
         if ($user->getFeeAsOfferer() || $user->getFeeAsOfferer() === 0) {
             $feeAsOfferer = $user->getFeeAsOfferer() / 100;
         }
@@ -268,8 +268,8 @@ class ListingController extends Controller
     private function createDurationForm(Listing $listing)
     {
         $form = $this->get('form.factory')->createNamed(
-            'listing',
-            'listing_edit_duration',
+            'listing_duration',
+            ListingEditDurationType::class,
             $listing,
             array(
                 'method' => 'POST',
@@ -405,10 +405,10 @@ class ListingController extends Controller
     public function completionNoticeAction(Listing $listing)
     {
         $listingCompletion = $listing->getCompletionInformations(
-            $this->container->getParameter("cocorico.listing_img_min")
+            $this->getParameter("cocorico.listing_img_min")
         );
         $userCompletion = $listing->getUser()->getCompletionInformations(
-            $this->container->getParameter("cocorico.user_img_min")
+            $this->getParameter("cocorico.user_img_min")
         );
 
         return $this->render(

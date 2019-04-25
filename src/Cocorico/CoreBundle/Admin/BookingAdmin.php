@@ -13,14 +13,20 @@ namespace Cocorico\CoreBundle\Admin;
 
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\CoreBundle\Entity\Listing;
-use Sonata\AdminBundle\Admin\Admin;
+use Cocorico\CoreBundle\Form\Type\PriceType;
+use Cocorico\CoreBundle\Repository\ListingRepository;
+use Cocorico\UserBundle\Repository\UserRepository;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Form\Type\Filter\NumberType;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Validator\Constraints\NotBlank;
+use Symfony\Component\Validator\Constraints\Range;
 
-class BookingAdmin extends Admin
+class BookingAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'booking';
@@ -28,8 +34,10 @@ class BookingAdmin extends Admin
     protected $timeUnit;
     protected $timeUnitIsDay;
     protected $bookingExpirationDelay;
+    protected $bookingAcceptationDelay;
     protected $includeVat;
     protected $bundles;
+    protected $timezone;
 
     protected $datagridValues = array(
         '_sort_order' => 'DESC',
@@ -49,12 +57,22 @@ class BookingAdmin extends Admin
 
     public function setBookingExpirationDelay($bookingExpirationDelay)
     {
-        $this->bookingExpirationDelay = $bookingExpirationDelay;
+        $this->bookingExpirationDelay = $bookingExpirationDelay;//in minutes
+    }
+
+    public function setBookingAcceptationDelay($bookingAcceptationDelay)
+    {
+        $this->bookingAcceptationDelay = $bookingAcceptationDelay;//in minutes
     }
 
     public function setBundlesEnabled($bundles)
     {
         $this->bundles = $bundles;
+    }
+
+    public function setTimezone($timezone)
+    {
+        $this->timezone = $timezone;
     }
 
     /**
@@ -65,60 +83,88 @@ class BookingAdmin extends Admin
         $this->includeVat = $includeVat;
     }
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Booking $booking */
+        $booking = $this->getSubject();
+
+        $askerQuery = $offererQuery = $listingQuery = null;
+        if ($booking) {
+            /** @var UserRepository $userRepository */
+            $userRepository = $this->modelManager->getEntityManager('CocoricoUserBundle:User')
+                ->getRepository('CocoricoUserBundle:User');
+
+            $askerQuery = $userRepository->getFindOneQueryBuilder($booking->getUser()->getId());
+            $offererQuery = $userRepository->getFindOneQueryBuilder($booking->getListing()->getUser()->getId());
+
+            /** @var ListingRepository $listingRepository */
+            $listingRepository = $this->modelManager->getEntityManager('CocoricoCoreBundle:Listing')
+                ->getRepository('CocoricoCoreBundle:Listing');
+
+            $listingQuery = $listingRepository->getFindOneByIdAndLocaleQuery(
+                $booking->getListing()->getId(),
+                $this->request ? $this->getRequest()->getLocale() : 'fr'
+            );
+        }
+
         $formMapper
             ->with('admin.booking.title')
             ->add(
                 'user',
-                null,
+                'sonata_type_model',
                 array(
+                    'query' => $askerQuery,
                     'disabled' => true,
                     'label' => 'admin.booking.asker.label'
                 )
             )
             ->add(
                 'listing.user',
-                null,
+                'sonata_type_model',
                 array(
+                    'query' => $offererQuery,
                     'disabled' => true,
                     'label' => 'admin.booking.offerer.label',
-                    'data_class' => 'Cocorico\UserBundle\Entity\User'
                 )
             )
             ->add(
                 'listing',
-                null,
+                'sonata_type_model',
                 array(
+                    'query' => $listingQuery,
                     'disabled' => true,
                     'label' => 'admin.listing.label',
                 )
             )
             ->add(
                 'amountExcludingFees',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.amount_excl_fees.label',
-                    'include_vat' => true
+                    'include_vat' => true,
+                    'scale' => 2
                 )
             )
             ->add(
                 'amountFeeAsAsker',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.amount_fee_as_asker.label',
-                    'include_vat' => true
+                    'include_vat' => true,
+                    'scale' => 2
                 )
             )
             ->add(
                 'amountFeeAsOfferer',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.amount_fee_as_offerer.label',
-                    'include_vat' => true
+                    'include_vat' => true,
+                    'scale' => 2
                 )
             );
 
@@ -142,55 +188,73 @@ class BookingAdmin extends Admin
                     )
                 )->add(
                     'amountDiscountVoucher',
-                    'price',
+                    PriceType::class,
                     array(
                         'disabled' => true,
                         'label' => 'admin.booking.amount_discount_voucher.label',
-                        'include_vat' => true
+                        'include_vat' => true,
+                        'scale' => 2
                     )
                 );
         }
 
+        if (array_key_exists("CocoricoListingDepositBundle", $this->bundles)) {
+            $formMapper
+                ->add(
+                    'amountDeposit',
+                    PriceType::class,
+                    array(
+                        'disabled' => true,
+                        'label' => 'listing_edit.form.deposit',
+                        'required' => false
+                    ),
+                    array(
+                        'translation_domain' => 'cocorico_listing_deposit',
+                    )
+                );
+        }
 
         $formMapper
             ->add(
                 'amountToPayByAsker',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.amount_to_pay_by_asker.label',
-                    'include_vat' => true
+                    'include_vat' => true,
+                    'scale' => 2
                 )
             )
             ->add(
                 'amountToPayToOfferer',
-                'price',
+                PriceType::class,
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.amount_to_pay_to_offerer.label',
-                    'include_vat' => true
+                    'include_vat' => true,
+                    'scale' => 2
                 )
             )
             ->add(
                 'status',
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Booking::$statusValues,
-                    'empty_value' => 'admin.booking.status.label',
+                    'choices' => array_flip(Booking::$statusValues),
+                    'placeholder' => 'admin.booking.status.label',
                     'disabled' => true,
                     'label' => 'admin.booking.status.label',
-                    'translation_domain' => 'cocorico_booking'
+                    'translation_domain' => 'cocorico_booking',
                 )
             )
             ->add(
                 'listing.cancellationPolicy',
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Listing::$cancellationPolicyValues,
-                    'empty_value' => 'admin.listing.cancellation_policy.label',
+                    'choices' => array_flip(Listing::$cancellationPolicyValues),
+                    'placeholder' => 'admin.listing.cancellation_policy.label',
                     'disabled' => true,
                     'label' => 'admin.listing.cancellation_policy.label',
-                    'translation_domain' => 'cocorico_listing'
+                    'translation_domain' => 'cocorico_listing',
                 )
             )
             ->add(
@@ -225,6 +289,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.start.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -233,6 +298,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.end.label',
+                    'view_timezone' => $this->timezone
                 )
             );
 
@@ -244,6 +310,7 @@ class BookingAdmin extends Admin
                     array(
                         'disabled' => true,
                         'label' => 'admin.booking.start_time.label',
+                        'view_timezone' => $this->timezone
                     )
                 )
                 ->add(
@@ -252,6 +319,23 @@ class BookingAdmin extends Admin
                     array(
                         'disabled' => true,
                         'label' => 'admin.booking.end_time.label',
+                        'view_timezone' => $this->timezone
+                    )
+                )
+                ->add(
+                    'timeZoneAsker',
+                    null,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.timezone_asker.label',
+                    )
+                )
+                ->add(
+                    'timeZoneOfferer',
+                    null,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.timezone_offerer.label',
                     )
                 );
         }
@@ -263,6 +347,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.new_booking_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -271,6 +356,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.payed_booking_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -279,6 +365,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.refused_booking_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -287,6 +374,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.canceled_asker_booking_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -295,6 +383,7 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.created_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->add(
@@ -303,43 +392,130 @@ class BookingAdmin extends Admin
                 array(
                     'disabled' => true,
                     'label' => 'admin.booking.updated_at.label',
+                    'view_timezone' => $this->timezone
                 )
             )
             ->end();
+
+
+        if (array_key_exists("CocoricoDeliveryBundle", $this->bundles)) {
+            $formMapper
+                ->with('admin.booking.delivery')
+                ->add(
+                    'deliveryAddress',
+                    null,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.delivery_address.label'
+                    )
+                )
+                ->add(
+                    'amountDelivery',
+                    PriceType::class,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.delivery_amount.label',
+                        'scale' => 2
+                    )
+                )
+                ->end();
+        } elseif (array_key_exists("CocoricoCarrierBundle", $this->bundles)) {
+            $formMapper
+                ->with('admin.booking.delivery')
+                ->add(
+                    'listing.location.completeAddress',
+                    'text',
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.listing.location.label'
+                    )
+                )
+                ->add(
+                    'pallets',
+                    'number',
+                    array(
+                        'label' => 'listing.form.pallets',
+                        'required' => true,
+                        'constraints' => array(
+                            new NotBlank(),
+                            new Range(array('min' => 1, 'max' => 33))
+                        )
+                    ),
+                    array(
+                        'translation_domain' => 'cocorico_carrier_listing',
+                    )
+                )
+                ->add(
+                    'deliveryAddress',
+                    null,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.delivery_address.label'
+                    )
+                )
+                ->add(
+                    'amountDelivery',
+                    PriceType::class,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.delivery_amount.label',
+                        'include_vat' => true,
+                        'scale' => 2
+                    )
+                )
+                ->add(
+                    'hatchback',
+                    'checkbox',
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.hatchback.label',
+                    )
+                )
+                ->add(
+                    'amountHatchback',
+                    PriceType::class,
+                    array(
+                        'disabled' => true,
+                        'label' => 'admin.booking.hatchback_amount.label',
+                        'include_vat' => true,
+                        'scale' => 2
+                    )
+                )
+                ->end();
+        } else {
+            $formMapper
+                ->with('admin.booking.delivery')
+                ->add(
+                    'userAddress',
+                    'sonata_type_admin',
+                    array(
+                        'delete' => false,
+                        'disabled' => true,
+                        'label' => false
+                    )
+                )->end();
+        }
+
 
         if (array_key_exists("CocoricoListingOptionBundle", $this->bundles)) {
             $formMapper
                 ->with('Options')
                 ->add(
                     'amountOptions',
-                    'price',
+                    PriceType::class,
                     array(
                         'disabled' => true,
                         'label' => 'admin.booking.amount_options.title',
-                        'include_vat' => $this->includeVat
-                    )
-                )
-                ->add(
-                    'options',
-                    '',
-                    array(
-                        'by_reference' => false,
-                        'class' => 'Cocorico\ListingOptionBundle\Entity\BookingOption',
-                        'query_builder' =>
-                            $this->modelManager
-                                ->createQuery('Cocorico\ListingOptionBundle\Entity\BookingOption', 'bo')
-                                ->where('bo.quantity > 0'),
-                        'property' => 'name'
-                    ),
-                    array(
-                        'edit' => 'inline',
-                        'inline' => 'table',
+                        'include_vat' => $this->includeVat,
+                        'scale' => 2
                     )
                 )
                 ->add(
                     'options',
                     'sonata_type_collection',
                     array(
+                        //IMPORTANT!: Disable this field else if child form has all its fields disabled then the child entities will be removed while saving
+                        'disabled' => true,
                         'type_options' => array(
                             'delete' => false,
                             'delete_options' => array(
@@ -356,6 +532,7 @@ class BookingAdmin extends Admin
                     array(
                         'edit' => 'inline',
                         'inline' => 'table',
+                        'delete' => 'false',
                     )
                 )
                 ->end();
@@ -387,11 +564,25 @@ class BookingAdmin extends Admin
                         'disabled' => true,
                         'label' => 'admin.booking.mangopay_payin_pre_auth_id.label',
                     )
-                )
-                ->end();
+                );
+
+            if (array_key_exists("CocoricoMangoPayCardSavingBundle", $this->bundles)) {
+                $formMapper
+                    ->add(
+                        'card',
+                        null,
+                        array(
+                            'disabled' => true,
+                            'label' => 'admin.booking.user_card.label',
+                        )
+                    );
+            }
+
+            $formMapper->end();
         }
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -400,11 +591,11 @@ class BookingAdmin extends Admin
                 'status',
                 'doctrine_orm_string',
                 array(),
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Booking::$statusValues,
+                    'choices' => array_flip(Booking::$statusValues),
                     'label' => 'admin.booking.status.label',
-                    'translation_domain' => 'cocorico_booking'
+                    'translation_domain' => 'cocorico_booking',
                 )
             )
             ->add(
@@ -418,12 +609,12 @@ class BookingAdmin extends Admin
                 array('label' => 'admin.booking.listing_title.label')
             )
             ->add(
-                'user.email',
+                'user.email',//todo: search by first name and last name
                 null,
                 array('label' => 'admin.booking.asker.label')
             )
             ->add(
-                'listing.user.email',
+                'listing.user.email',//todo: search by first name and last name
                 null,
                 array('label' => 'admin.booking.offerer.label')
             )
@@ -564,6 +755,7 @@ class BookingAdmin extends Admin
         return false;
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -624,7 +816,6 @@ class BookingAdmin extends Admin
                 'date',
                 array(
                     'label' => 'admin.booking.start.label',
-                    'format' => 'd/m/Y'
                 )
             )
             ->add(
@@ -632,7 +823,6 @@ class BookingAdmin extends Admin
                 'date',
                 array(
                     'label' => 'admin.booking.end.label',
-                    'format' => 'd/m/Y'
                 )
             );
 
@@ -662,16 +852,16 @@ class BookingAdmin extends Admin
                     'template' => 'CocoricoSonataAdminBundle::list_booking_expiration_date.html.twig',
                     'label' => 'admin.booking.expire_at.label',
                     'bookingExpirationDelay' => $this->bookingExpirationDelay,
-                )
-            )
-            ->add(
-                'updatedAt',
-                null,
-                array(
-                    'label' => 'admin.booking.updated_at.label',
-                    'format' => 'd/m/Y'
+                    'bookingAcceptationDelay' => $this->bookingAcceptationDelay,
                 )
             );
+//            ->add(
+//                'updatedAt',
+//                null,
+//                array(
+//                    'label' => 'admin.booking.updated_at.label',
+//                )
+//            );
 
 
         $listMapper->add(

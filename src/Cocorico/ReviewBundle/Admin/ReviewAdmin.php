@@ -11,13 +11,17 @@
 
 namespace Cocorico\ReviewBundle\Admin;
 
-use Sonata\AdminBundle\Admin\Admin;
+use Cocorico\CoreBundle\Repository\ListingRepository;
+use Cocorico\ReviewBundle\Entity\Review;
+use Cocorico\UserBundle\Repository\UserRepository;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 
-class ReviewAdmin extends Admin
+class ReviewAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'review';
@@ -28,21 +32,74 @@ class ReviewAdmin extends Admin
         '_sort_by' => 'createdAt'
     );
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Review $review */
+        $review = $this->getSubject();
+
+        $reviewByQuery = $reviewToQuery = $listingQuery = $bookingQuery = null;
+        if ($review) {
+            /** @var UserRepository $userRepository */
+            $userRepository = $this->modelManager->getEntityManager('CocoricoUserBundle:User')
+                ->getRepository('CocoricoUserBundle:User');
+
+            $reviewByQuery = $userRepository->getFindOneQueryBuilder($review->getReviewBy()->getId());
+            $reviewToQuery = $userRepository->getFindOneQueryBuilder($review->getReviewTo()->getId());
+
+            /** @var ListingRepository $listingRepository */
+            $listingRepository = $this->modelManager->getEntityManager('CocoricoCoreBundle:Listing')
+                ->getRepository('CocoricoCoreBundle:Listing');
+
+            $listingQuery = $listingRepository->getFindOneByIdAndLocaleQuery(
+                $review->getBooking()->getListing()->getId(),
+                $this->request ? $this->getRequest()->getLocale() : 'fr'
+            );
+
+            $bookingQuery = $this->modelManager->getEntityManager('CocoricoCoreBundle:Booking')
+                ->getRepository('CocoricoCoreBundle:Booking')
+                ->createQueryBuilder('b')
+                ->where('b.id = :bookingId')
+                ->setParameter('bookingId', $review->getBooking()->getId())->getQuery();
+
+        }
+
         $formMapper
+            ->with('admin.review.title')
+            ->add(
+                'booking',
+                'sonata_type_model',
+                array(
+                    'query' => $bookingQuery,
+                    'disabled' => true,
+                    'label' => 'admin.review.booking.label',
+                )
+            )
             ->add(
                 'reviewBy',
-                null,
+                'sonata_type_model',
                 array(
-                    'label' => 'admin.review.reviewBy.label'
+                    'query' => $reviewByQuery,
+                    'label' => 'admin.review.reviewBy.label',
+                    'disabled' => true,
                 )
             )
             ->add(
                 'reviewTo',
-                null,
+                'sonata_type_model',
                 array(
+                    'query' => $reviewToQuery,
                     'label' => 'admin.review.reviewTo.label',
+                    'disabled' => true,
+                )
+            )
+            ->add(
+                'booking.listing',
+                'sonata_type_model',
+                array(
+                    'query' => $listingQuery,
+                    'disabled' => true,
+                    'label' => 'admin.review.listing.label',
                 )
             )
             ->add(
@@ -50,12 +107,14 @@ class ReviewAdmin extends Admin
                 null,
                 array(
                     'label' => 'admin.review.rating.label',
+                    'disabled' => true,
                 )
             )
             ->add(
                 'comment',
                 null,
                 array(
+                    'disabled' => false,
                     'label' => 'admin.review.comment.label',
                 )
             )
@@ -63,33 +122,29 @@ class ReviewAdmin extends Admin
                 'createdAt',
                 null,
                 array(
-                    'disabled' => true,
                     'label' => 'admin.review.created_at.label',
+                    'disabled' => true,
                 )
             )
             ->end();
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
-        $choices = array(
-            '1' => '1',
-            '2' => '2',
-            '3' => '3',
-            '4' => '4',
-            '5' => '5'
-        );
-
         $datagridMapper
             ->add(
                 'rating',
                 'doctrine_orm_string',
                 array(),
-                'choice',
+                ChoiceType::class,
                 array(
                     'label' => 'admin.review.rating.label',
-                    'choices' => $choices,
-                    'empty_value' => 'admin.review.rating.label',
+                    'choices' => array_combine(
+                        range(1, 5),
+                        range(1, 5)
+                    ),
+                    'placeholder' => 'admin.review.rating.label',
                     'translation_domain' => 'SonataAdminBundle',
                 )
             )
@@ -138,10 +193,18 @@ class ReviewAdmin extends Admin
             );
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
             ->addIdentifier('id')
+            ->add(
+                'booking',
+                null,
+                array(
+                    'label' => 'admin.review.booking.label',
+                )
+            )
             ->add(
                 'reviewBy',
                 null,
@@ -182,7 +245,6 @@ class ReviewAdmin extends Admin
                 'createdAt',
                 null,
                 array(
-                    'format' => "d/m/Y H:i",
                     'label' => 'admin.review.created_at.label',
                 )
             );
@@ -218,9 +280,10 @@ class ReviewAdmin extends Admin
         $datagrid = $this->getDatagrid();
         $datagrid->buildPager();
 
-        $datasourceit = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
-        $datasourceit->setDateTimeFormat('d M Y'); //change this to suit your needs
-        return $datasourceit;
+        $datasourceIt = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
+        $datasourceIt->setDateTimeFormat('d M Y'); //change this to suit your needs
+
+        return $datasourceIt;
     }
 
     protected function configureRoutes(RouteCollection $collection)

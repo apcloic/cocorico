@@ -11,7 +11,6 @@
 
 namespace Cocorico\CoreBundle\Controller\Frontend;
 
-use Doctrine\Common\Collections\ArrayCollection;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Symfony\Component\HttpFoundation\Request;
@@ -31,10 +30,14 @@ class ListingFavouriteController extends ListingSearchController
     public function indexFavouriteAction(Request $request)
     {
         $markers = array();
-        $results = new ArrayCollection();
-        $listingSearchRequest = $this->get('cocorico.listing_search_request');
-        $form = $this->createSearchForm($listingSearchRequest);
+        $listings = new \ArrayIterator();
+        $nbListings = 0;
+
+        $listingSearchRequest = $this->getListingSearchRequest();
+        $form = $this->createSearchResultForm($listingSearchRequest);
+
         $form->handleRequest($request);
+
         // handle the form for pagination
         if ($form->isSubmitted() && $form->isValid()) {
             $listingSearchRequest = $form->getData();
@@ -43,23 +46,27 @@ class ListingFavouriteController extends ListingSearchController
         $favourites = explode(',', $request->cookies->get('favourite'));
         if (count($favourites) > 0) {
             $results = $this->get("cocorico.listing_search.manager")->getListingsByIds(
+                $listingSearchRequest,
                 $favourites,
                 $listingSearchRequest->getPage(),
                 $request->getLocale()
             );
-            $resultIterator = $results->getIterator();
-            $markers = $this->getMarkers($resultIterator);
+            $nbListings = $results->count();
+            $listings = $results->getIterator();
+            $markers = $this->getMarkers($request, $results, $listings);
         }
 
         return $this->render(
             '@CocoricoCore/Frontend/ListingResult/result.html.twig',
             array(
-                'results' => $results,
-                'markers' => $markers,
+                'form' => $form->createView(),
+                'listings' => $listings,
+                'nb_listings' => $nbListings,
+                'markers' => $markers['markers'],
                 'listing_search_request' => $listingSearchRequest,
                 'pagination' => array(
                     'page' => $listingSearchRequest->getPage(),
-                    'pages_count' => ceil($results->count() / $listingSearchRequest->getMaxPerPage()),
+                    'pages_count' => ceil($nbListings / $listingSearchRequest->getMaxPerPage()),
                     'route' => $request->get('_route'),
                     'route_params' => $request->query->all()
                 )

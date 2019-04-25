@@ -1,5 +1,4 @@
 parameters:
-    database_driver:   pdo_mysql
     database_host:     127.0.0.1
     database_port:     ~
     database_name:     cocorico_dev
@@ -16,13 +15,14 @@ parameters:
     mailer_password:   ~
     mailer_port: null
 
+    # You can generate it here http://nux.net/secret
     secret:            ThisTokenIsNotSoSecretChangeIt
 
-    debug_toolbar:          false
-    debug_redirects:        false
+#    debug_toolbar:          false
+#    debug_redirects:        false
     use_assetic_controller: false
 
-    ### Cocorico environements dependant parameters (See CocoricoCoreBundle/Resources/config/parameters.yml) ###
+    ### Cocorico environments dependant parameters (See CocoricoCoreBundle/Resources/config/parameters.yml) ###
 
     #Assets for emails
     cocorico.assets_base_urls: https://cocorico.dev
@@ -36,9 +36,10 @@ parameters:
     cocorico.admin: admin
     #Admin Web JMS translations activation
     cocorico.admin_translation: false
+    #To check if site texts are translatable
+    cocorico.check_translation: false
 
     #Microsoft Translator key
-    cocorico.translator.client.id: ~
     cocorico.translator.secret.key: ~
 
     #Facebook
@@ -68,15 +69,17 @@ parameters:
 
     #### Environment dependant to facilitate tests ####
     #### Delays ####
-
     ##Booking expiration delay in minutes
-    cocorico.booking.expiration_delay: 2880
+    cocorico.booking.expiration_delay: 2880 #2 days
+
+    ##Booking acceptation expiration delay in minutes
+    cocorico.booking.acceptation_delay: 240 #4 hours
 
     ##Expiring Bookings alert delay in minutes
-    cocorico.booking.alert_expiration_delay: 120
+    cocorico.booking.alert_expiration_delay: 120 #2 hours
 
     #Imminent Bookings alert delay in minutes
-    cocorico.booking.alert_imminent_delay: 1440
+    cocorico.booking.alert_imminent_delay: 1440 #1 day
 
     ##Does the booking object (apartment, service, ...) is considered as validated (Offerer can be payed)
     ##after booking start date or booking end date.
@@ -90,14 +93,3 @@ parameters:
     ##Set to true in dev env to avoid to ask to mangopay to manually validate a bank wire
     ##Set to false in prod env
     cocorico.bankwire_checking_simulation: false
-
-    ################################# Optional bundles #################################
-
-    #SMS
-    cocorico_sms.enabled: false
-    cocorico_sms.ovh_endpoint_name:      "ovh-eu"
-    cocorico_sms.ovh_application_key:    "Application Key"
-    cocorico_sms.ovh_application_secret: "Application Secret"
-    cocorico_sms.ovh_consumer_key:       "Consumer Key"
-    cocorico_sms.ovh_service_name:       "Service Name"
-    cocorico_sms.ovh_debug: false

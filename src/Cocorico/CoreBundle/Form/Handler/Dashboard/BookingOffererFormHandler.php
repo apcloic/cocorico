@@ -37,17 +37,12 @@ class BookingOffererFormHandler extends BookingFormHandler
         /** @var Booking $booking */
         $booking = $form->getData();
         $message = $form->get("message")->getData();
-        $this->threadManager->addReplyThread($booking, $message);
+        $this->threadManager->addReplyThread($booking, $message, $booking->getListing()->getUser());
         //Accept or refuse
         $type = $this->request->get('type');
 
-        $hasCorrectStartTime = $booking->hasCorrectStartTime(
-            $this->minStartDelay,
-            $this->minStartTimeDelay,
-            $this->bookingManager->getTimeUnitIsDay()
-        );
-
-        if ($booking->getStatus() == Booking::STATUS_NEW && $hasCorrectStartTime) {
+        $canBeAcceptedOrRefused = $this->bookingManager->canBeAcceptedOrRefusedByOfferer($booking);
+        if ($canBeAcceptedOrRefused) {
             if ($type == 'accept') {
                 if ($this->bookingManager->pay($booking)) {
                     $result = 1;

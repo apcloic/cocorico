@@ -18,7 +18,6 @@ use Cocorico\CoreBundle\Entity\Listing;
 use Cocorico\CoreBundle\Mailer\TwigSwiftMailer;
 use Cocorico\CoreBundle\Repository\BookingPayinRefundRepository;
 use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\Query;
 use Doctrine\ORM\Tools\Pagination\Paginator;
 
 class BookingPayinRefundManager extends BaseManager
@@ -27,19 +26,27 @@ class BookingPayinRefundManager extends BaseManager
     protected $cancellationPolicyRules;
     protected $mailer;
     public $maxPerPage;
+    protected $bundles;
 
     /**
      * @param EntityManager   $em
      * @param array           $cancellationPolicyRules
      * @param TwigSwiftMailer $mailer
      * @param int             $maxPerPage
+     * @param array           $bundles
      */
-    public function __construct(EntityManager $em, array $cancellationPolicyRules, TwigSwiftMailer $mailer, $maxPerPage)
-    {
+    public function __construct(
+        EntityManager $em,
+        array $cancellationPolicyRules,
+        TwigSwiftMailer $mailer,
+        $maxPerPage,
+        $bundles
+    ) {
         $this->em = $em;
         $this->cancellationPolicyRules = $cancellationPolicyRules;
         $this->mailer = $mailer;
         $this->maxPerPage = $maxPerPage;
+        $this->bundles = $bundles;
     }
 
     /**
@@ -108,7 +115,7 @@ class BookingPayinRefundManager extends BaseManager
             }
 
             //If time before checkin is less than the limit then the refund is minimum
-            if ($booking->getTimeBeforeStart() < $rules["time_before_start"]) {
+            if ($booking->getTimeBeforeStart($this->timeZone) < $rules["time_before_start"]) {
                 $refundPercentage = $rules["refund_min"];
             } else {
                 $refundPercentage = $rules["refund_max"];
@@ -121,8 +128,8 @@ class BookingPayinRefundManager extends BaseManager
                     $amountToRefund -= $booking->getAmountDiscountVoucher();//Discount amount is not refunded
                 }
             }
-            $feeToCollectWhileRefund = 0;
 
+            $feeToCollectWhileRefund = 0;
             //If refund to asker is 100% then offerer fees are also refunded to asker
             //And asker fees are collected while refunding
             if ($refundPercentage == 1) {
@@ -130,8 +137,14 @@ class BookingPayinRefundManager extends BaseManager
                 $feeToCollectWhileRefund = $booking->getAmountTotalFee() - $booking->getAmountFeeAsOfferer();
             }
 
+            if ($this->depositIsEnabled()) {
+                if ($booking->getAmountDeposit()) {
+                    $amountToRefund += $booking->getAmountDeposit();//Deposit amount is refunded totally
+                }
+            }
+
             return array(
-                "refund_amount" => $amountToRefund,
+                "refund_amount" => round($amountToRefund),//We are in cents: Remove decimal if any
                 "refund_percent" => $refundPercentage,
                 "fee_to_collect_while_refund" => $feeToCollectWhileRefund
             );
@@ -175,7 +188,7 @@ class BookingPayinRefundManager extends BaseManager
                 $amountTotal = 0;//Canceled while not payed
             }
         } elseif ($booking->getStatus() == Booking::STATUS_NEW) {//Not already canceled no refunded
-            $amountTotal = 0;
+            $amountTotal = 0;//nothing to refund because amount not already payed
         }
 
         return $amountTotal;
@@ -209,9 +222,16 @@ class BookingPayinRefundManager extends BaseManager
      */
     public function voucherIsEnabled()
     {
-        return !$this->em->getMetadataFactory()->isTransient('Cocorico\VoucherBundle\Entity\Voucher');
+        return isset($this->bundles["CocoricoVoucherBundle"]);
     }
 
+    /**
+     * @return bool
+     */
+    public function depositIsEnabled()
+    {
+        return isset($this->bundles["CocoricoListingDepositBundle"]);
+    }
 
     /**
      *

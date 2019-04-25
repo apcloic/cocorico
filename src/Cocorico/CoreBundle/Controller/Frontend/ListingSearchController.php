@@ -12,8 +12,14 @@
 namespace Cocorico\CoreBundle\Controller\Frontend;
 
 use Cocorico\CoreBundle\Entity\ListingImage;
+use Cocorico\CoreBundle\Event\ListingSearchActionEvent;
+use Cocorico\CoreBundle\Event\ListingSearchEvents;
+use Cocorico\CoreBundle\Form\Type\Frontend\ListingSearchHomeType;
+use Cocorico\CoreBundle\Form\Type\Frontend\ListingSearchResultType;
+use Cocorico\CoreBundle\Form\Type\Frontend\ListingSearchType;
 use Cocorico\CoreBundle\Model\ListingSearchRequest;
 use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\ORM\Tools\Pagination\Paginator;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
@@ -32,10 +38,16 @@ class ListingSearchController extends Controller
      */
     public function searchAction(Request $request)
     {
-        $markers = array();
-        $results = new ArrayCollection();
+        //For drag map mode
+        $isXmlHttpRequest = $request->isXmlHttpRequest() ? true : false;
+
+        $markers = array('listingsIds' => array(), 'markers' => array());
+        $listings = new \ArrayIterator();
+        $nbListings = 0;
+
         /** @var ListingSearchRequest $listingSearchRequest */
         $listingSearchRequest = $this->get('cocorico.listing_search_request');
+        $isXmlHttpRequest ? $listingSearchRequest->setSortBy('distance') : null;
         $form = $this->createSearchResultForm($listingSearchRequest);
 
         $form->handleRequest($request);
@@ -47,15 +59,15 @@ class ListingSearchController extends Controller
                 $listingSearchRequest,
                 $request->getLocale()
             );
-            $resultIterator = $results->getIterator();
-
-            $markers = $this->getMarkers($resultIterator);
+            $nbListings = $results->count();
+            $listings = $results->getIterator();
+            $markers = $this->getMarkers($request, $results, $listings);
 
             //Persist similar listings id
-            $listingSearchRequest->setSimilarListings(array_column($markers, 'id'));
+            $listingSearchRequest->setSimilarListings($markers['listingsIds']);
 
             //Persist listing search request in session
-            $this->get('session')->set('listing_search_request', $listingSearchRequest);
+            !$isXmlHttpRequest ? $this->get('session')->set('listing_search_request', $listingSearchRequest) : null;
         } else {
             foreach ($form->getErrors(true) as $error) {
                 $this->get('session')->getFlashBag()->add(
@@ -66,21 +78,36 @@ class ListingSearchController extends Controller
             }
         }
 
+        //Breadcrumbs
+        $breadcrumbs = $this->get('cocorico.breadcrumbs_manager');
+        $breadcrumbs->addListingResultItems($this->get('request_stack')->getCurrentRequest(), $listingSearchRequest);
+
+        //Add params to view through event listener
+        $event = new ListingSearchActionEvent($request);
+        $this->get('event_dispatcher')->dispatch(ListingSearchEvents::LISTING_SEARCH_ACTION, $event);
+        $extraViewParams = $event->getExtraViewParams();
+
         return $this->render(
-            '@CocoricoCore/Frontend/ListingResult/result.html.twig',
-            array(
-                'results' => $results,
-                'markers' => $markers,
-                'listing_search_request' => $listingSearchRequest,
-                'pagination' => array(
-                    'page' => $listingSearchRequest->getPage(),
-                    'pages_count' => ceil($results->count() / $listingSearchRequest->getMaxPerPage()),
-                    'route' => $request->get('_route'),
-                    'route_params' => $request->query->all()
-                )
+            $isXmlHttpRequest ?
+                '@CocoricoCore/Frontend/ListingResult/result_ajax.html.twig' :
+                '@CocoricoCore/Frontend/ListingResult/result.html.twig',
+            array_merge(
+                array(
+                    'form' => $form->createView(),
+                    'listings' => $listings,
+                    'nb_listings' => $nbListings,
+                    'markers' => $markers['markers'],
+                    'listing_search_request' => $listingSearchRequest,
+                    'pagination' => array(
+                        'page' => $listingSearchRequest->getPage(),
+                        'pages_count' => ceil($nbListings / $listingSearchRequest->getMaxPerPage()),
+                        'route' => $request->get('_route'),
+                        'route_params' => $request->query->all()
+                    ),
+                ),
+                $extraViewParams
             )
         );
-
     }
 
     /**
@@ -88,11 +115,11 @@ class ListingSearchController extends Controller
      *
      * @return \Symfony\Component\Form\Form|\Symfony\Component\Form\FormInterface
      */
-    private function createSearchResultForm(ListingSearchRequest $listingSearchRequest)
+    protected function createSearchResultForm(ListingSearchRequest $listingSearchRequest)
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'listing_search_result',
+            ListingSearchResultType::class,
             $listingSearchRequest,
             array(
                 'method' => 'GET',
@@ -106,56 +133,89 @@ class ListingSearchController extends Controller
     /**
      * Get Markers
      *
-     * @param  \ArrayIterator $results
+     * @param  Request        $request
+     * @param  Paginator      $results
+     * @param  \ArrayIterator $resultsIterator
+     *
      * @return array
+     *          array['markers'] markers data
+     *          array['listingsIds'] listings ids
      */
-    protected function getMarkers($results)
+    protected function getMarkers(Request $request, $results, $resultsIterator)
     {
-        $imagePath = ListingImage::IMAGE_FOLDER;
-        $currentCurrency = $this->get('session')->get('currency', $this->container->getParameter('cocorico.currency'));
-        $markers = array();
+        //We get listings id of current page to change their marker aspect on the map
+        $resultsInPage = array();
+        foreach ($resultsIterator as $i => $result) {
+            $resultsInPage[] = $result[0]['id'];
+        }
 
-        foreach ($results as $i => $result) {
+        //We need to display all listings (without pagination) of the current search on the map
+        $results->getQuery()->setFirstResult(null);
+        $results->getQuery()->setMaxResults(null);
+        $nbResults = $results->count();
+
+        $imagePath = ListingImage::IMAGE_FOLDER;
+        $currentCurrency = $this->get('session')->get('currency', $this->getParameter('cocorico.currency'));
+        $locale = $request->getLocale();
+        $liipCacheManager = $this->get('liip_imagine.cache.manager');
+        $currencyExtension = $this->get('lexik_currency.currency_extension');
+        $currencyExtension->getFormatter()->setLocale($locale);
+        $markers = $listingsIds = array();
+
+        foreach ($results->getIterator() as $i => $result) {
             $listing = $result[0];
+            $listingsIds[] = $listing['id'];
 
             $imageName = count($listing['images']) ? $listing['images'][0]['name'] : ListingImage::IMAGE_DEFAULT;
-            $image = $this->get('liip_imagine.cache.manager')->getBrowserPath(
-                $imagePath . $imageName,
-                'listing_medium',
-                array()
-            );
 
-            $price = $this->get('lexik_currency.currency_extension')->convertAndFormat(
-                $listing['price'] / 100,
-                $currentCurrency,
-                false
-            );
+            $image = $liipCacheManager->getBrowserPath($imagePath . $imageName, 'listing_medium', array());
 
-            $categories = count($listing['categories']) ?
-                $listing['categories'][0]['translations'][$this->get('request')->getLocale()]['name'] : '';
+            $price = $currencyExtension->convertAndFormat($listing['price'] / 100, $currentCurrency, false);
 
-            $markers[] = array(
+            $categories = count($listing['listingListingCategories']) ?
+                $listing['listingListingCategories'][0]['category']['translations'][$locale]['name'] : '';
+
+            $isInCurrentPage = in_array($listing['id'], $resultsInPage);
+
+            $rating1 = $rating2 = $rating3 = $rating4 = $rating5 = 'hidden';
+            if ($listing['averageRating']) {
+                $rating1 = ($listing['averageRating'] >= 1) ? '' : 'inactive';
+                $rating2 = ($listing['averageRating'] >= 2) ? '' : 'inactive';
+                $rating3 = ($listing['averageRating'] >= 3) ? '' : 'inactive';
+                $rating4 = ($listing['averageRating'] >= 4) ? '' : 'inactive';
+                $rating5 = ($listing['averageRating'] >= 5) ? '' : 'inactive';
+            }
+
+            //Allow to group markers with same location
+            $locIndex = $listing['location']['coordinate']['lat'] . "-" . $listing['location']['coordinate']['lng'];
+            $markers[$locIndex][] = array(
                 'id' => $listing['id'],
                 'lat' => $listing['location']['coordinate']['lat'],
                 'lng' => $listing['location']['coordinate']['lng'],
-                'title' => $listing['translations'][$this->get('request')->getLocale()]['title'],
+                'title' => $listing['translations'][$locale]['title'],
                 'category' => $categories,
                 'image' => $image,
-                'rating1' => ($listing['averageRating'] >= 1) ? '' : 'inactive',
-                'rating2' => ($listing['averageRating'] >= 2) ? '' : 'inactive',
-                'rating3' => ($listing['averageRating'] >= 3) ? '' : 'inactive',
-                'rating4' => ($listing['averageRating'] >= 4) ? '' : 'inactive',
-                'rating5' => ($listing['averageRating'] >= 5) ? '' : 'inactive',
+                'rating1' => $rating1,
+                'rating2' => $rating2,
+                'rating3' => $rating3,
+                'rating4' => $rating4,
+                'rating5' => $rating5,
                 'price' => $price,
                 'certified' => $listing['certified'] ? 'certified' : 'hidden',
                 'url' => $url = $this->generateUrl(
                     'cocorico_listing_show',
-                    array('slug' => $listing['translations'][$this->get('request')->getLocale()]['slug'])
-                )
+                    array('slug' => $listing['translations'][$locale]['slug'])
+                ),
+                'zindex' => $isInCurrentPage ? 2 * $nbResults - $i : $i,
+                'opacity' => $isInCurrentPage ? 1 : 0.4,
+
             );
         }
 
-        return $markers;
+        return array(
+            'markers' => $markers,
+            'listingsIds' => $listingsIds
+        );
     }
 
     /**
@@ -184,7 +244,7 @@ class ListingSearchController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'listing_search_home',
+            ListingSearchHomeType::class,
             $listingSearchRequest,
             array(
                 'method' => 'GET',
@@ -221,7 +281,7 @@ class ListingSearchController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'listing_search',
+            ListingSearchType::class,
             $listingSearchRequest,
             array(
                 'method' => 'GET',
@@ -232,22 +292,6 @@ class ListingSearchController extends Controller
         return $form;
     }
 
-    /**
-     *
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
-    public function searchResultFormAction()
-    {
-        $listingSearchRequest = $this->getListingSearchRequest();
-        $form = $this->createSearchResultForm($listingSearchRequest);
-
-        return $this->render(
-            '@CocoricoCore/Frontend/ListingResult/form_search.html.twig',
-            array(
-                'form' => $form->createView(),
-            )
-        );
-    }
 
     /**
      * similarListingAction will list out the listings which are almost similar to what has been
@@ -268,6 +312,7 @@ class ListingSearchController extends Controller
         $ids = ($listingSearchRequest) ? $listingSearchRequest->getSimilarListings() : array();
         if ($listingSearchRequest && count($ids) > 0) {
             $results = $this->get("cocorico.listing_search.manager")->getListingsByIds(
+                $listingSearchRequest,
                 $ids,
                 null,
                 $request->getLocale(),
@@ -286,7 +331,7 @@ class ListingSearchController extends Controller
     /**
      * @return ListingSearchRequest
      */
-    private function getListingSearchRequest()
+    protected function getListingSearchRequest()
     {
         $session = $this->get('session');
         /** @var ListingSearchRequest $listingSearchRequest */
@@ -297,46 +342,4 @@ class ListingSearchController extends Controller
         return $listingSearchRequest;
     }
 
-//    /**
-//     * Set in session the search geocoding made through javascript.
-//     *
-//     * @Route("/listing/set_search_geo_js", name="cocorico_listing_set_search_geocoding_js")
-//     * @Method("POST")
-//     *
-//     * @param Request $request
-//     * @return \Symfony\Component\HttpFoundation\Response
-//     */
-//    public function setSearchGeocodingJS(Request $request)
-//    {
-//        if ($request->isXmlHttpRequest()) {
-//            $searchGeocodingJS = $request->request->get("searchGeocodingJS");
-//            $this->get('session')->set('listing_search_geocoding_js', $searchGeocodingJS);
-//
-//            return new Response(json_encode(array('result' => $searchGeocodingJS)));
-//        }
-//
-//        return new Response(json_encode(array('result' => false)));
-//    }
-//
-//
-//    /**
-//     * Get the search geocoding made through javascript.
-//     *
-//     * @Route("/listing/get_search_geo_js", name="cocorico_listing_get_search_geocoding_js")
-//     * @Method("GET")
-//     *
-//     * @param Request $request
-//     * @return \Symfony\Component\HttpFoundation\Response
-//     */
-//    public function getSearchGeocodingJS(Request $request)
-//    {
-//        if ($request->isXmlHttpRequest()) {
-//
-//            $searchGeocodingJS = $this->get('session')->get('listing_search_geocoding_js');
-//
-//            return new Response(json_encode(array('result' => $searchGeocodingJS)));
-//        }
-//
-//        return new Response(json_encode(array('result' => false)));
-//    }
 }

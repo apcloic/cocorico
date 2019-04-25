@@ -12,6 +12,7 @@
 namespace Cocorico\CoreBundle\Controller\Dashboard\Offerer;
 
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Form\Type\Dashboard\ListingEditDescriptionType;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\ParamConverter;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
@@ -42,30 +43,24 @@ class ListingPresentationController extends Controller
      */
     public function editPresentationAction(Request $request, Listing $listing)
     {
+        $translator = $this->get('translator');
         $editForm = $this->createEditPresentationForm($listing);
         $editForm->handleRequest($request);
 
-        $selfUrl = $this->generateUrl(
-            'cocorico_dashboard_listing_edit_presentation',
-            array(
-                'id' => $listing->getId()
-            )
-        );
         if ($editForm->isSubmitted() && $editForm->isValid()) {
             $this->get("cocorico.listing.manager")->save($listing);
 
             $this->get('session')->getFlashBag()->add(
                 'success',
-                $this->get('translator')->trans('listing.edit.success', array(), 'cocorico_listing')
+                $translator->trans('listing.edit.success', array(), 'cocorico_listing')
 
             );
 
-            return $this->redirect($selfUrl);
+            return $this->redirectToRoute(
+                'cocorico_dashboard_listing_edit_presentation',
+                array('id' => $listing->getId())
+            );
         }
-
-        $this->get('cocorico.breadcrumbs_manager')->addListingItem($request, $listing);
-        $text = $this->get('translator')->trans('presentation', array(), 'cocorico_breadcrumbs');
-        $this->get('cocorico.breadcrumbs_manager')->addItem($text, $selfUrl);
 
         return $this->render(
             'CocoricoCoreBundle:Dashboard/Listing:edit_presentation.html.twig',
@@ -88,7 +83,7 @@ class ListingPresentationController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             'listing',
-            'listing_edit_description',
+            ListingEditDescriptionType::class,
             $listing,
             array(
                 'action' => $this->generateUrl(

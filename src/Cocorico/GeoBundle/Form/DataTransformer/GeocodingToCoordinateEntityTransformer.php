@@ -16,10 +16,10 @@ use Cocorico\GeoBundle\Entity\City;
 use Cocorico\GeoBundle\Entity\Coordinate;
 use Cocorico\GeoBundle\Entity\Country;
 use Cocorico\GeoBundle\Entity\Department;
-use Cocorico\GeoBundle\Geocoder\Provider\GoogleMapsProvider;
+use Cocorico\GeoBundle\Geocoder\Provider\GoogleMaps;
+use Cocorico\GeoBundle\Geocoder\StatefulGeocoder;
 use Doctrine\Common\Persistence\ObjectManager;
-use Geocoder\Exception\NoResultException;
-use Geocoder\HttpAdapter\CurlHttpAdapter;
+use Http\Adapter\Guzzle6\Client;
 use Symfony\Component\Form\DataTransformerInterface;
 use Symfony\Component\Form\Exception\TransformationFailedException;
 
@@ -37,6 +37,11 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
     private $googlePlaceAPIKey;
 
     /**
+     * @var bool
+     */
+    const DEBUG = false;
+
+    /**
      * @param ObjectManager $om
      * @param array         $locales
      * @param string        $locale
@@ -51,7 +56,7 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
     }
 
     /**
-     * Transforms an object (issue) to a string (number).
+     * Transforms an object (coordinate) to a string (number).
      *
      * @param  Coordinate|null $coordinate
      * @return string
@@ -77,13 +82,16 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
         if (!$geocodingI18n) {
             throw new TransformationFailedException();
         }
-        //print_r($geocodingI18n);
+        $this->debug("reverseTransform > geocodingI18n :\n" . print_r($geocodingI18n, 1));
+
         // wrap numbers
         $geocodingI18n = preg_replace('/:\s*(\-?\d+(\.\d+)?([e|E][\-|\+]\d+)?)/', ': "$1"', $geocodingI18n);
         $geocodingI18n = json_decode($geocodingI18n);
-//        echo "geocodingI18n Client :";
-//        print_r($geocodingI18n);
+
+        $this->debug("reverseTransform > geocodingI18n JSON decoded :\n" . print_r($geocodingI18n, 1));
+
         if (!$geocodingI18n->{$this->locale}) {
+            $this->debug("reverseTransform > Error: No geocodingI18n locale.\n");
             throw new TransformationFailedException();
         }
 
@@ -100,16 +108,17 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
         //Success? The server data are used.
         if ($geocodingI18nServer) {
             $geocodingI18n = $geocodingI18nServer;
-            //print_r($geocodingI18n);
+            $this->debug("reverseTransform > geocodingI18n server done :\n" . print_r($geocodingI18n, 1));
         }
 
         //Current Locale Geocoding
         $geocoding = $this->getGeocoding($geocodingI18n);
         if (!$geocoding) {
+            $this->debug("reverseTransform > Error: No geocoding.");
             throw new TransformationFailedException();
         }
 
-        //todo: JSON and DB lat and lng must be compared with the same precision:
+        //JSON and DB lat and lng must be compared with the same precision:
         //ex : 48.869782|2.3508079000000635 (JSON) != 48.8697820|2.3508079 (DB)
         $coordinate = $this->om->getRepository('CocoricoGeoBundle:Coordinate')->findOneBy(
             array(
@@ -118,8 +127,8 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
             )
         );
 
-        //echo $lat . "--" . $lng;
-        //die();
+        $this->debug("reverseTransform > LatLng:\n" . $lat . "--" . $lng);
+//        die();
 
         if (null === $coordinate) {
             try {
@@ -144,7 +153,7 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
                 $coordinate->setDepartment($geographicalEntities["department"]);
                 $coordinate->setCity($geographicalEntities["city"]);
 
-            } catch (TransformationFailedException $e) {
+            } catch (\Exception $e) {
                 throw new TransformationFailedException();
             }
 
@@ -161,19 +170,23 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
      * @param $lat
      * @param $lng
      * @return bool|mixed
+     * @throws TransformationFailedException
      */
     private function getGeocodingServer($region, $lat, $lng)
     {
         //Server geocoding. If we can we use it instead of client geocoding
         try {
             $geocodingsServer = $geocodingI18nServer = array();
+
+            $httpClient = new Client();
+            $provider = new GoogleMaps($httpClient, $region, $this->googlePlaceAPIKey);
+
             //Geocoding for each locale
             foreach ($this->locales as $locale) {
-                $geocoder = new GoogleMapsProvider(
-                    new CurlHttpAdapter(), $locale, $region, true, $this->googlePlaceAPIKey
-                );
-                $geocoder->setMaxResults(1);
-                $geocodingsServer[$locale] = $geocoder->getReversedData(array($lat, $lng));
+                $geocoder = new StatefulGeocoder($provider, $locale);
+                $geocoder->setLimit(1);
+                $geocodingsServers = $geocoder->reverse($lat, $lng)->all();
+                $geocodingsServer[$locale] = $geocodingsServers[0];
             }
 
             //Move current locale to end of array. The current locale is the reference.
@@ -181,15 +194,15 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
             unset($geocodingsServer[$this->locale]);
             $geocodingsServer[$this->locale] = $localeGeocoding;
 
-//            echo "geocodingI18n Server :";
-//            print_r($geocodingsServer);
+            $this->debug("getGeocodingServer > geocodingsServer:\n" . print_r($geocodingsServer, 1));
 
             //Merge them
             foreach ($geocodingsServer as $geocodingServer) {
                 $geocodingI18nServer = array_merge($geocodingI18nServer, $geocodingServer);
             }
 
-        } catch (NoResultException $e) {
+        } catch (\Exception $e) {
+            $this->debug("getGeocodingServer NoResult Error:\n" . $e->getMessage());
             throw new TransformationFailedException();
         }
 
@@ -204,9 +217,10 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
     /**
      * Get and/or set Geographical Entities from geocoding information
      *
-     * @param object $geocodingI18n
-     *
+     * @param $geocodingI18n
      * @return array
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     private function getGeographicalEntities($geocodingI18n)
     {
@@ -237,24 +251,10 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
                 );
         }
 
-        $country = $this->getOrCreateCountry(
-            $geocodingI18n->{$this->locale}->country_short,
-            $countries
-        );
-
-        $area = $this->getOrCreateArea(
-            $areas,
-            $country
-        );
-        $department = $this->getOrCreateDepartment(
-            $departments,
-            $area
-        );
-
-        $city = $this->getOrCreateCity(
-            $cities,
-            $department
-        );
+        $country = $this->getOrCreateCountry($geocodingI18n->{$this->locale}->country_short, $countries);
+        $area = $this->getOrCreateArea($areas, $country);
+        $department = $this->getOrCreateDepartment($departments, $area);
+        $city = $this->getOrCreateCity($cities, $department);
 
         return array(
             "country" => $country,
@@ -278,7 +278,6 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
             return false;
         }
         $geocoding = $geocodingI18n->{$this->locale};
-        //die(print_r($geocoding, 1));
         if (!isset($geocodingI18n->lat) || !isset($geocodingI18n->lng) ||
             !isset($geocoding->country_short) || !isset($geocodingI18n->formatted_address) ||
             (
@@ -300,13 +299,11 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
      */
     private function getOrCreateCountry($code, $names)
     {
-        $country = $this->om
-            ->getRepository('CocoricoGeoBundle:Country')
-            ->findOneBy(
-                array(
-                    'code' => $code
-                )
-            );
+        $country = $this->om->getRepository('CocoricoGeoBundle:Country')->findOneBy(
+            array(
+                'code' => $code
+            )
+        );
 
         if (null === $country) {
             $country = new Country();
@@ -328,17 +325,18 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
      * @param  array   $names
      * @param  Country $country
      * @return Area|mixed|null
+     *
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     private function getOrCreateArea($names, $country)
     {
         $area = null;
         if ($country->getId()) {
-            $area = $this->om
-                ->getRepository('CocoricoGeoBundle:Area')
-                ->findOneByNameAndCountry(
-                    $names[$this->locale],
-                    $country
-                );
+            $area = $this->om->getRepository('CocoricoGeoBundle:Area')->findOneByNameAndCountry(
+                $names[$this->locale],
+                $country
+            );
         }
 
         if (null === $area) {
@@ -356,22 +354,23 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
     }
 
     /**
-     * Get or create and translate department
+     ** Get or create and translate department
      *
      * @param  array $names
      * @param  Area  $area
      * @return mixed
+     *
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     private function getOrCreateDepartment($names, $area)
     {
         $department = null;
         if ($area->getId()) {
-            $department = $this->om
-                ->getRepository('CocoricoGeoBundle:Department')
-                ->findOneByNameAndArea(
-                    $names[$this->locale],
-                    $area
-                );
+            $department = $this->om->getRepository('CocoricoGeoBundle:Department')->findOneByNameAndArea(
+                $names[$this->locale],
+                $area
+            );
         }
 
         if (null === $department) {
@@ -395,17 +394,18 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
      * @param  array      $names
      * @param  Department $department
      * @return City
+     *
+     * @throws \Doctrine\ORM\NoResultException
+     * @throws \Doctrine\ORM\NonUniqueResultException
      */
     private function getOrCreateCity($names, $department)
     {
         $city = null;
         if ($department->getId()) {
-            $city = $this->om
-                ->getRepository('CocoricoGeoBundle:City')
-                ->findOneByNameAndDepartment(
-                    $names[$this->locale],
-                    $department
-                );
+            $city = $this->om->getRepository('CocoricoGeoBundle:City')->findOneByNameAndDepartment(
+                $names[$this->locale],
+                $department
+            );
         }
 
         if (null === $city) {
@@ -423,4 +423,13 @@ class GeocodingToCoordinateEntityTransformer implements DataTransformerInterface
         return $city;
     }
 
+    /**
+     * @param $message
+     */
+    private function debug($message)
+    {
+        if (self::DEBUG) {
+            echo '<pre>' . nl2br($message) . "</pre><br>";
+        }
+    }
 }

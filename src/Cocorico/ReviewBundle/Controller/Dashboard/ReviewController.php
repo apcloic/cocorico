@@ -13,6 +13,7 @@ namespace Cocorico\ReviewBundle\Controller\Dashboard;
 
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\ReviewBundle\Entity\Review;
+use Cocorico\ReviewBundle\Form\Type\Dashboard\ReviewType;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\ParamConverter;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
@@ -41,13 +42,13 @@ class ReviewController extends Controller
      * @param  Request $request
      * @param  Booking $booking
      *
-     * @return \Symfony\Component\HttpFoundation\Response
+     * @return \Symfony\Component\HttpFoundation\RedirectResponse|\Symfony\Component\HttpFoundation\Response
+     * @throws AccessDeniedException
      */
     public function newAction(Request $request, Booking $booking)
     {
         $user = $this->getUser();
         $formHandler = $this->get('cocorico.form.handler.review');
-        $breadcrumbManager = $this->get('cocorico.breadcrumbs_manager');
         $translator = $this->get('translator');
 
         //Reviews form handling
@@ -63,26 +64,17 @@ class ReviewController extends Controller
                 $translator->trans('review.new.success', array(), 'cocorico_review')
             );
 
-            return $this->redirect($this->generateUrl('cocorico_dashboard_reviews_added'));
+            return $this->redirect($this->generateUrl('cocorico_dashboard_reviews_made'));
         }
-
-        //Breadcrumbs
-        $breadcrumbManager->addPreItems($request);
-        $breadcrumbManager->addItem(
-            $translator->trans('Comments', array(), 'cocorico_breadcrumbs'),
-            $this->generateUrl('cocorico_dashboard_reviews_received')
-        );
-        $breadcrumbManager->addItem(
-            $booking->getListing()->getTitle(),
-            $this->generateUrl('cocorico_dashboard_review_new', array('booking_id' => $booking->getId()))
-        );
 
         return $this->render(
             'CocoricoReviewBundle:Dashboard/Review:new.html.twig',
             array(
                 'form' => $form->createView(),
                 'booking' => $booking,
-                'reviewTo' => $review->getReviewTo()
+                'reviewTo' => $review->getReviewTo(),
+                'user_timezone' => $user == $booking->getUser() ?
+                    $booking->getTimeZoneAsker() : $booking->getTimeZoneOfferer()
             )
         );
     }
@@ -98,7 +90,7 @@ class ReviewController extends Controller
     {
         $form = $this->get('form.factory')->createNamed(
             '',
-            'review_new',
+            ReviewType::class,
             $review
         );
 
@@ -109,7 +101,7 @@ class ReviewController extends Controller
     /**
      * List of reviews made by the user
      *
-     * @Route("/reviews-made", name="cocorico_dashboard_reviews_added")
+     * @Route("/reviews-made", name="cocorico_dashboard_reviews_made")
      *
      * @Method({"GET"})
      *
@@ -123,14 +115,15 @@ class ReviewController extends Controller
         $userType = $request->getSession()->get('profile', 'asker');
 
         $reviewManager = $this->get('cocorico.review.manager');
-        $reviews = $reviewManager->getUserReviews($userType, $user);
-        $bookings = $reviewManager->getUnreviewedBooking($userType, $user);
+        $madeReviews = $reviewManager->getUserReviews($userType, $user, 'made');
+        $unreviewedBookings = $reviewManager->getUnreviewedBookings($userType, $user);
 
         return $this->render(
-            'CocoricoReviewBundle:Dashboard/Review:made_reviews.html.twig',
+            'CocoricoReviewBundle:Dashboard/Review:index.html.twig',
             array(
-                'reviews' => $reviews,
-                'bookings' => $bookings
+                'reviews' => $madeReviews,
+                'unreviewed_bookings' => $unreviewedBookings,
+                'reviews_type' => 'made'
             )
         );
     }
@@ -153,14 +146,15 @@ class ReviewController extends Controller
 
         $reviewManager = $this->get('cocorico.review.manager');
 
-        $reviews = $reviewManager->getUserReviews($userType, $user, false);
-        $bookings = $reviewManager->getUnreviewedBooking($userType, $user);
+        $receivedReviews = $reviewManager->getUserReviews($userType, $user, 'received');
+        $unreviewedBookings = $reviewManager->getUnreviewedBookings($userType, $user);
 
         return $this->render(
-            'CocoricoReviewBundle:Dashboard/Review:received_reviews.html.twig',
+            'CocoricoReviewBundle:Dashboard/Review:index.html.twig',
             array(
-                'reviews' => $reviews,
-                'bookings' => $bookings
+                'reviews' => $receivedReviews,
+                'unreviewed_bookings' => $unreviewedBookings,
+                'reviews_type' => 'received'
             )
         );
     }

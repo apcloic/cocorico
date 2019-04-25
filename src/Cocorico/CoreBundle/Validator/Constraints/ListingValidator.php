@@ -22,6 +22,7 @@ class ListingValidator extends ConstraintValidator
     private $minImages;
     private $minCategories;
     private $minPrice;
+    private $countries;
 
     /**
      * @param EntityManager $emr
@@ -29,14 +30,16 @@ class ListingValidator extends ConstraintValidator
      * @param               $minImages
      * @param               $minCategories
      * @param               $minPrice
+     * @param               $countries
      */
-    public function __construct(EntityManager $emr, $maxImages, $minImages, $minCategories, $minPrice)
+    public function __construct(EntityManager $emr, $maxImages, $minImages, $minCategories, $minPrice, $countries)
     {
         $this->emr = $emr;
         $this->maxImages = $maxImages;
         $this->minImages = $minImages;
         $this->minCategories = $minCategories;
         $this->minPrice = $minPrice;
+        $this->countries = $countries;
     }
 
     /**
@@ -66,10 +69,38 @@ class ListingValidator extends ConstraintValidator
         }
 
         //Categories
-        if ($listing->getCategories()->count() < $this->minCategories) {
+        if ($listing->getListingListingCategories()->count() < $this->minCategories) {
             $this->context->buildViolation($constraint::$messageMinCategories)
-                ->atPath('categories')
+                ->atPath('listingListingCategories')
                 ->setParameter('{{ min_categories }}', $this->minCategories)
+                ->setTranslationDomain('cocorico_listing')
+                ->addViolation();
+        }
+
+        //Price
+        if ($listing->getPrice() < $this->minPrice) {
+            $this->context->buildViolation($constraint::$messageMinPrice)
+                ->atPath('price')
+                ->setParameter('{{ min_price }}', $this->minPrice / 100)
+                ->setTranslationDomain('cocorico_listing')
+                ->addViolation();
+        }
+
+        //Duration
+        if ($listing->getMinDuration() && $listing->getMaxDuration() &&
+            $listing->getMinDuration() > $listing->getMaxDuration()
+        ) {
+            $this->context->buildViolation($constraint::$messageDuration)
+                ->atPath('min_duration')
+                ->setTranslationDomain('cocorico_listing')
+                ->addViolation();
+        }
+
+
+        //Location
+        if ($this->countries && !in_array($listing->getLocation()->getCountry(), $this->countries)) {
+            $this->context->buildViolation($constraint::$messageCountryInvalid)
+                ->atPath('location.country')
                 ->setTranslationDomain('cocorico_listing')
                 ->addViolation();
         }
@@ -87,25 +118,6 @@ class ListingValidator extends ConstraintValidator
 //                    ->addViolation();
 //            }
 //        }
-
-        //Price
-        if ($listing->getPrice() < $this->minPrice) {
-            $this->context->buildViolation($constraint::$messageMinPrice)
-                ->atPath('price')
-                ->setParameter('{{ min_price }}', $this->minPrice / 100)
-                ->setTranslationDomain('cocorico_listing')
-                ->addViolation();
-        }
-
-        //Duration
-        if ($listing->getMinDuration() && $listing->getMaxDuration() && $listing->getMinDuration(
-            ) > $listing->getMaxDuration()
-        ) {
-            $this->context->buildViolation($constraint::$messageDuration)
-                ->atPath('min_duration')
-                ->setTranslationDomain('cocorico_listing')
-                ->addViolation();
-        }
     }
 
 }

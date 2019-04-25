@@ -1,8 +1,8 @@
-{% trans_default_domain 'cocorico_user' %}
+{% trans_default_domain 'cocorico_mail' %}
 
 {% block subject -%}
     {% autoescape false %}
-    {{ 'registration.email.subject'|trans({'%firstname%': user.firstName, '%confirmationUrl%': confirmationUrl}, 'cocorico_user', user_locale) }}
+    {{ 'registration.email.subject'|trans({'%firstname%': user.firstName}, 'cocorico_mail', user_locale) }}
     {% endautoescape %}
 {%- endblock %}
 
@@ -10,7 +10,7 @@
     {{ 'registration.email.message'|trans({
         '%firstname%': user.firstName,
         '%confirmationUrl%': confirmationUrl},
-    'cocorico_user', user_locale) }}
+    'cocorico_mail', user_locale) }}
 {% endblock %}
 
 {% block body_text %}

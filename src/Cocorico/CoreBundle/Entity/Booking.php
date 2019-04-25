@@ -12,11 +12,11 @@
 namespace Cocorico\CoreBundle\Entity;
 
 use Cocorico\CoreBundle\Model\BaseBooking;
+use Cocorico\CoreBundle\Model\BookingDepositRefundInterface;
 use Cocorico\CoreBundle\Model\BookingOptionInterface;
-use Cocorico\CoreBundle\Model\DateRange;
-use Cocorico\CoreBundle\Model\TimeRange;
 use Cocorico\MessageBundle\Entity\Thread;
 use Cocorico\ReviewBundle\Entity\Review;
+use Cocorico\TimeBundle\Model\DayTimeRange;
 use Cocorico\UserBundle\Entity\User;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
@@ -100,11 +100,19 @@ class Booking extends BaseBooking
     private $payinRefund;
 
     /**
-     *
      * @ORM\OneToMany(targetEntity="Cocorico\CoreBundle\Model\BookingOptionInterface", mappedBy="booking", cascade={"persist", "remove"}, orphanRemoval=true)
-     *
      */
     private $options;
+
+    /**
+     * @ORM\OneToOne(targetEntity="Cocorico\CoreBundle\Entity\BookingUserAddress", mappedBy="booking", cascade={"persist", "remove"}, orphanRemoval=true)
+     */
+    private $userAddress;
+
+    /**
+     * @ORM\OneToOne(targetEntity="Cocorico\CoreBundle\Model\BookingDepositRefundInterface", mappedBy="booking", cascade={"remove"}, orphanRemoval=true)
+     **/
+    private $depositRefund;
 
     public function __construct()
     {
@@ -146,6 +154,30 @@ class Booking extends BaseBooking
     }
 
     /**
+     * Set user address
+     *
+     * @param BookingUserAddress $userAddress
+     * @return Booking
+     */
+    public function setUserAddress($userAddress)
+    {
+        $userAddress->setBooking($this);
+        $this->userAddress = $userAddress;
+
+        return $this;
+    }
+
+    /**
+     * Get booking user address
+     *
+     * @return BookingUserAddress
+     */
+    public function getUserAddress()
+    {
+        return $this->userAddress;
+    }
+
+    /**
      * Set listing
      *
      * @param \Cocorico\CoreBundle\Entity\Listing $listing
@@ -169,7 +201,7 @@ class Booking extends BaseBooking
     }
 
     /**
-     * @return mixed
+     * @return Thread
      */
     public function getThread()
     {
@@ -186,7 +218,7 @@ class Booking extends BaseBooking
     }
 
     /**
-     * @return mixed
+     * @return Review[]|ArrayCollection
      */
     public function getReviews()
     {
@@ -249,9 +281,12 @@ class Booking extends BaseBooking
      */
     public function getDuration($endDayIncluded, $timeUnit)
     {
+        if (!$this->getStart() || !$this->getEnd()) {
+            return false;
+        }
+
         $timeUnitIsDay = ($timeUnit % 1440 == 0) ? true : false;
-        $dateRange = new DateRange($this->getStart(), $this->getEnd());
-        $durationDay = $dateRange->getDuration($endDayIncluded);
+        $durationDay = $this->getDateRange()->getDuration($endDayIncluded);
 
         if ($durationDay < 1) {
             return false;
@@ -260,8 +295,10 @@ class Booking extends BaseBooking
         if ($timeUnitIsDay) {//Duration in time unit (day)
             $duration = $durationDay;
         } else {//Duration in time unit (hour, ...)
-            $timeRange = new TimeRange($this->getStartTime(), $this->getEndTime());
-            $durationTime = $timeRange->getDuration($timeUnit);
+            if (!$this->getStartTime() || !$this->getEndTime()) {
+                return false;
+            }
+            $durationTime = $this->getTimeRange()->getDuration($timeUnit);
             $duration = $durationDay * $durationTime;
         }
 
@@ -269,35 +306,29 @@ class Booking extends BaseBooking
     }
 
     /**
-     * Get time elapsed since new booking creation
-     *
-     * @return bool|int in seconds
-     */
-    public function getNewBookingTimeElapsed()
-    {
-        if ($this->getNewBookingAt()) {
-            $now = new \DateTime();
-
-            return $now->getTimestamp() - $this->getNewBookingAt()->getTimestamp();
-        }
-
-        return false;
-    }
-
-    /**
      * Get time in seconds before booking request expire depending on its status
      *
-     * @param int $expirationDelay in seconds
+     * @param int $expirationDelay  in minutes
+     * @param int $acceptationDelay in minutes
+     *
      * @return bool|int nb seconds before expiration
      */
-    public function getTimeBeforeExpiration($expirationDelay)
+    public function getTimeBeforeExpiration($expirationDelay, $acceptationDelay)
     {
         switch ($this->getStatus()) {
             case self::STATUS_DRAFT:
                 return false;
                 break;
             case self::STATUS_NEW:
-                return round($expirationDelay - $this->getNewBookingTimeElapsed());
+                $expirationDate = $this->getExpirationDate($expirationDelay, $acceptationDelay);
+                if ($expirationDate) {
+                    $now = new \DateTime('now');
+
+                    return round($expirationDate->getTimestamp() - $now->getTimestamp());
+                }
+
+                return false;
+
                 break;
             default:
                 //No expiration case
@@ -306,19 +337,29 @@ class Booking extends BaseBooking
     }
 
     /**
-     * Get booking expiration date
+     * Get booking expiration date:
+     *   Equal to the smallest date between (new booking date + expiration delay) and (booking start date + acceptation delay)
      *
-     * @param int $bookingExpirationDelay in minutes
+     * @param int $bookingExpirationDelay  in minutes
+     * @param int $bookingAcceptationDelay in minutes
      *
-     * @return \Datetime|bool
+     * @return \Datetime|bool (in UTC)
      */
-    public function getExpirationDate($bookingExpirationDelay)
+    public function getExpirationDate($bookingExpirationDelay, $bookingAcceptationDelay)
     {
         if ($this->getNewBookingAt()) {
-            $newBookingAt = clone $this->getNewBookingAt();
-            $newBookingAt->add(new \DateInterval('PT' . $bookingExpirationDelay . 'M'));
+            $expirationDate = clone $this->getNewBookingAt();
+            $expirationDate->add(new \DateInterval('PT' . $bookingExpirationDelay . 'M'));
 
-            return $newBookingAt;
+            $acceptationDate = clone $this->getStart();
+            $acceptationDate->sub(new \DateInterval('PT' . $bookingAcceptationDelay . 'M'));
+
+            //Return minus date
+            if ($expirationDate->format('Ymd H:i') < $acceptationDate->format('Ymd H:i')) {
+                return $expirationDate;
+            } else {
+                return $acceptationDate;
+            }
         }
 
         return false;
@@ -334,7 +375,7 @@ class Booking extends BaseBooking
      * @param string $bookingValidationMoment ("start"|"end")
      * @param int    $bookingValidationDelay  in minutes
      *
-     * @return \Datetime|bool
+     * @return \Datetime|bool (in UTC)
      */
     public function getValidationDate($bookingValidationMoment, $bookingValidationDelay)
     {
@@ -342,13 +383,14 @@ class Booking extends BaseBooking
         /** @var \DateTime $validatedAt */
         $validatedAt = $this->$methodName();
         if ($validatedAt) {
+            $validatedAtCloned = clone $validatedAt;
             if ($bookingValidationDelay >= 0) {
-                $validatedAt->add(new \DateInterval('PT' . $bookingValidationDelay . 'M'));
+                $validatedAtCloned->add(new \DateInterval('PT' . $bookingValidationDelay . 'M'));
             } else {
-                $validatedAt->sub(new \DateInterval('PT' . abs($bookingValidationDelay) . 'M'));
+                $validatedAtCloned->sub(new \DateInterval('PT' . abs($bookingValidationDelay) . 'M'));
             }
 
-            return $validatedAt;
+            return $validatedAtCloned;
         }
 
         return false;
@@ -363,7 +405,7 @@ class Booking extends BaseBooking
     public function getTimeBeforeStart()
     {
         if ($this->getStart()) {
-            $now = new \DateTime();
+            $now = new \DateTime('now');
 
             return $this->getStart()->getTimestamp() - $now->getTimestamp();
         }
@@ -383,68 +425,74 @@ class Booking extends BaseBooking
         return ($this->getStart()->format('Ymd') <= $now->format('Ymd'));
     }
 
-    /**
-     * Return whether a booking can be canceled by asker
-     *
-     * @return bool
-     */
-    public function canBeCanceledByAsker()
-    {
-        $statusIsOk = in_array($this->getStatus(), self::$cancelableStatus);
-        $hasStarted = $this->hasStarted();
-
-        if ($statusIsOk && !$hasStarted && !$this->isValidated()) {
-            return true;
-        } else {
-            return false;
-        }
-
-    }
-
 
     /**
-     * Check if booking start time is correct according to $minStartTimeDelay
+     * Check if booking begin after the minimum start date according to $minStartTimeDelay or $minStartDelay
+     * old: hasCorrectStartTime
      *
      * @param int  $minStartDelay     in days
-     * @param int  $minStartTimeDelay in hours
+     * @param int  $minStartTimeDelay in minutes
      * @param bool $timeUnitIsDay
      *
      * @return bool
      */
-    public function hasCorrectStartTime($minStartDelay, $minStartTimeDelay, $timeUnitIsDay)
+    public function beginAfterMinStartDate($minStartDelay, $minStartTimeDelay, $timeUnitIsDay)
     {
-        $now = new \DateTime();
+        $minStartTime = new \DateTime();
 
         if ($timeUnitIsDay) {
-            $now->setTime(0, 0, 0);
+            $minStartTime->add(new \DateInterval('P' . $minStartDelay . 'D'));
+            $minStartTime->setTime(0, 0, 0);
 
-            $start = new \DateTime(
-                $this->getStart()->format('Y-m-d')
-            );
-            $interval = $now->diff($start);
-            $days = $interval->days;
-
-//            echo $start->format('Y-m-d H:i') . "<br>";
-//            echo $now->format('Y-m-d H:i') . "<br>";
-//            echo $days . "<br>";
-//            echo $minStartDelay . "<br>";
-//            echo $interval->invert . "<br>";
-
-            if ($interval->invert == 1 || $days < $minStartDelay) {
+            if ($this->getStart()->format('Ymd') < $minStartTime->format('Ymd')) {
                 return false;
             }
         } else {
-            $start = new \DateTime(
-                $this->getStart()->format('Y-m-d') . " " . $this->getStartTime()->format('H:i')
-            );
-            $interval = $now->diff($start);
-            $hours = ($interval->days * 24) + $interval->h;
-            if ($interval->invert == 1 || $hours < $minStartTimeDelay) {
+            $minStartTime->add(new \DateInterval('PT' . $minStartTimeDelay . 'M'));
+
+            if ($this->getStart()->format('Ymd H:i') < $minStartTime->format('Ymd H:i')) {
                 return false;
             }
         }
 
         return true;
+    }
+
+
+    /**
+     * Check if two booking overlap their dates time ranges
+     *
+     * @param Booking $booking
+     * @param  bool   $endDayIncluded
+     * @return bool
+     */
+    public function overlap(Booking $booking, $endDayIncluded)
+    {
+        $timeRanges = $this->getDateTimeRange()->getDaysTimeRanges($endDayIncluded);
+        $timeRangesToCheck = $booking->getDateTimeRange()->getDaysTimeRanges($endDayIncluded);
+
+        return DayTimeRange::overlap($timeRanges, $timeRangesToCheck);
+    }
+
+
+    /**
+     * Get bookings overlapping this booking
+     *
+     * @param Booking[] $bookings
+     * @param bool      $endDayIncluded
+     * @return Booking[]
+     */
+    public function getOverlapping($bookings, $endDayIncluded)
+    {
+        $result = array();
+
+        foreach ($bookings as $index => $booking) {
+            if ($this->overlap($booking, $endDayIncluded) && $this->getId() != $booking->getId()) {
+                $result[] = $booking;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -494,8 +542,25 @@ class Booking extends BaseBooking
         }
 
         $this->options = $options;
+
+        return $this;
     }
 
+    /**
+     * @return BookingDepositRefundInterface
+     */
+    public function getDepositRefund()
+    {
+        return $this->depositRefund;
+    }
+
+    /**
+     * @param BookingDepositRefundInterface $depositRefund
+     */
+    public function setDepositRefund($depositRefund)
+    {
+        $this->depositRefund = $depositRefund;
+    }
 
     /**
      * @return string

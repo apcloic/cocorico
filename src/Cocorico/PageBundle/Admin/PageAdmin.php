@@ -11,13 +11,16 @@
 
 namespace Cocorico\PageBundle\Admin;
 
-use Sonata\AdminBundle\Admin\Admin;
+use A2lix\TranslationFormBundle\Form\Type\TranslationsType;
+use Ivory\CKEditorBundle\Form\Type\CKEditorType;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Validator\Constraints\NotBlank;
 
-class PageAdmin extends Admin
+class PageAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'page';
@@ -34,22 +37,27 @@ class PageAdmin extends Admin
         $this->locales = $locales;
     }
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
         //Translations fields
         $titles = $descriptions = $metaTitles = $metaDescriptions = array();
         foreach ($this->locales as $i => $locale) {
             $titles[$locale] = array(
-                'label' => 'Title'
+                'label' => 'Title',
+                'constraints' => array(new NotBlank())
             );
             $descriptions[$locale] = array(
-                'label' => 'Description'
+                'label' => 'Description',
+                'constraints' => array(new NotBlank())
             );
             $metaTitles[$locale] = array(
-                'label' => 'Meta Title'
+                'label' => 'Meta Title',
+                'constraints' => array(new NotBlank())
             );
             $metaDescriptions[$locale] = array(
-                'label' => 'Meta Description'
+                'label' => 'Meta Description',
+                'constraints' => array(new NotBlank())
             );
         }
 
@@ -57,18 +65,20 @@ class PageAdmin extends Admin
             ->with('Page')
             ->add(
                 'translations',
-                'a2lix_translations',
+                TranslationsType::class,
                 array(
                     'locales' => $this->locales,
-//                    'required_locales' => array($this->locale),
+                    'required_locales' => $this->locales,
                     'fields' => array(
                         'title' => array(
                             'field_type' => 'text',
                             'locale_options' => $titles,
+                            'required' => true,
                         ),
                         'description' => array(
-                            'field_type' => 'ckeditor',
+                            'field_type' => CKEditorType::class,
                             'locale_options' => $descriptions,
+                            'required' => true,
                             'config' => array(
                                 'filebrowser_image_browse_url' => array(
                                     'route' => 'elfinder',
@@ -79,10 +89,12 @@ class PageAdmin extends Admin
                         'metaTitle' => array(
                             'field_type' => 'text',
                             'locale_options' => $metaTitles,
+                            'required' => true,
                         ),
                         'metaDescription' => array(
                             'field_type' => 'textarea',
                             'locale_options' => $metaDescriptions,
+                            'required' => true,
                         ),
                         'slug' => array(
                             'field_type' => 'text',
@@ -119,6 +131,7 @@ class PageAdmin extends Admin
             ->end();
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -162,6 +175,7 @@ class PageAdmin extends Admin
             );
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -192,7 +206,7 @@ class PageAdmin extends Admin
             )
             ->add(
                 'createdAt',
-                null,
+                'date',
                 array(
                     'label' => 'admin.page.created_at.label',
                 )
@@ -229,6 +243,7 @@ class PageAdmin extends Admin
 
         $dataSourceIt = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
         $dataSourceIt->setDateTimeFormat('d M Y'); //change this to suit your needs
+
         return $dataSourceIt;
     }
 

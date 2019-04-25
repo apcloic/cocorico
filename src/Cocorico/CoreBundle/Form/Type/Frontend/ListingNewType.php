@@ -11,52 +11,53 @@
 
 namespace Cocorico\CoreBundle\Form\Type\Frontend;
 
+use A2lix\TranslationFormBundle\Form\Type\TranslationsType;
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Entity\ListingLocation;
+use Cocorico\CoreBundle\Event\ListingFormBuilderEvent;
+use Cocorico\CoreBundle\Event\ListingFormEvents;
 use Cocorico\CoreBundle\Form\Type\ImageType;
-use Cocorico\UserBundle\Entity\User;
-use Cocorico\UserBundle\Security\LoginManager;
+use Cocorico\CoreBundle\Form\Type\PriceType;
 use JMS\TranslationBundle\Model\Message;
 use JMS\TranslationBundle\Translation\TranslationContainerInterface;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\Form\FormError;
-use Symfony\Component\Form\FormEvent;
-use Symfony\Component\Form\FormEvents;
-use Symfony\Component\Form\FormInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
-use Symfony\Component\Security\Core\SecurityContext;
-use Symfony\Component\Validator\Constraints\True;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Validator\Constraints\IsTrue;
+use Symfony\Component\Validator\Constraints\NotBlank;
+use Symfony\Component\Validator\Constraints\Valid;
 
+/**
+ * Class ListingNewType
+ * Categories are created trough ajax in ListingNewCategoriesType.
+ */
 class ListingNewType extends AbstractType implements TranslationContainerInterface
 {
     public static $tacError = 'listing.form.tac.error';
     public static $credentialError = 'user.form.credential.error';
-    public static $emptyTitle = 'listing.translation.title.default';
 
-    private $securityContext;
-    private $loginManager;
     private $request;
     private $locale;
     private $locales;
+    protected $dispatcher;
 
     /**
-     * @param SecurityContext $securityContext
-     * @param LoginManager    $loginManager
-     * @param RequestStack    $requestStack
-     * @param array           $locales
+     * @param RequestStack             $requestStack
+     * @param array                    $locales
+     * @param EventDispatcherInterface $dispatcher
      */
     public function __construct(
-        SecurityContext $securityContext,
-        LoginManager $loginManager,
         RequestStack $requestStack,
-        $locales
+        $locales,
+        EventDispatcherInterface $dispatcher
     ) {
-        $this->securityContext = $securityContext;
-        $this->loginManager = $loginManager;
         $this->request = $requestStack->getCurrentRequest();
         $this->locale = $this->request->getLocale();
         $this->locales = $locales;
+        $this->dispatcher = $dispatcher;
     }
 
     /**
@@ -65,25 +66,31 @@ class ListingNewType extends AbstractType implements TranslationContainerInterfa
      */
     public function buildForm(FormBuilderInterface $builder, array $options)
     {
+        /** @var Listing $listing */
+        $listing = $builder->getData();
+
         //Translations fields
         $titles = $descriptions = array();
         foreach ($this->locales as $i => $locale) {
             $titles[$locale] = array(
                 'label' => 'listing.form.title',
-//                'data' => self::$emptyTitle
+                'constraints' => array(new NotBlank()),
+                'attr' => array(
+                    'placeholder' => 'auto',
+                ),
             );
             $descriptions[$locale] = array(
-                'label' => 'listing.form.description'
+                'label' => 'listing.form.description',
+                'constraints' => array(new NotBlank()),
+                'attr' => array(
+                    'placeholder' => 'auto',
+                ),
             );
-
-            /*$rules[$locale] = array(
-                'label' => 'listing.form.rules'
-            );*/
         }
 
         $builder->add(
             'translations',
-            'a2lix_translations',
+            TranslationsType::class,
             array(
                 'required_locales' => array($this->locale),
                 'fields' => array(
@@ -93,187 +100,113 @@ class ListingNewType extends AbstractType implements TranslationContainerInterfa
                     ),
                     'description' => array(
                         'field_type' => 'textarea',
-                        'locale_options' => $descriptions
+                        'locale_options' => $descriptions,
                     ),
                     'rules' => array(
-                        /*'field_type' => 'textarea',
-                        'locale_options' => $rules,*/
-                        'display' => false
+                        'display' => false,
                     ),
                     'slug' => array(
-                        'field_type' => 'hidden'
-                    )
+                        'display' => false
+                    ),
                 ),
                 /** @Ignore */
-                'label' => false
+                'label' => false,
             )
         );
 
         $builder
             ->add(
                 'price',
-                'price',
+                PriceType::class,
                 array(
                     'label' => 'listing.form.price',
                 )
             )
             ->add(
-                'categories',
-                'listing_category',
-                array(
-                    'block_name' => 'categories'
-                )
-            )
-            ->add(
                 'image',
-                new ImageType()
-            )
+                ImageType::class
+            );
+
+        //Default listing location
+        $listingLocation = null;
+        $user = $listing->getUser();
+        if ($user) {
+            if ($user->getListings()->count()) {
+                /** @var Listing $listing */
+                $listing = $user->getListings()->first();
+                $location = $listing->getLocation();
+
+                $listingLocation = new ListingLocation();
+                $listingLocation->setListing($listing);
+                $listingLocation->setCountry($location->getCountry());
+                $listingLocation->setCity($location->getCity());
+                $listingLocation->setZip($location->getZip());
+                $listingLocation->setRoute($location->getRoute());
+                $listingLocation->setStreetNumber($location->getStreetNumber());
+            }
+        }
+
+        $builder
             ->add(
                 'location',
-                new ListingLocationType(),
+                ListingLocationType::class,
                 array(
                     'data_class' => 'Cocorico\CoreBundle\Entity\ListingLocation',
                     /** @Ignore */
                     'label' => false,
+                    'data' => $listingLocation,
                 )
-            )
+            );
+
+        $builder
             ->add(
-                "tac",
-                "checkbox",
+                'tac',
+                CheckboxType::class,
                 array(
                     'label' => 'listing.form.tac',
                     'mapped' => false,
-                    'constraints' => new True(
+                    'constraints' => new IsTrue(
                         array(
-                            "message" => self::$tacError
+                            'message' => self::$tacError,
                         )
                     ),
                 )
             );
 
-        /**
-         * Set the user fields according to his logging status
-         *
-         * @param FormInterface $form
-         */
-        $formUserModifier = function (FormInterface $form) {
-            //Not logged
-            if (!$this->securityContext->isGranted('IS_AUTHENTICATED_FULLY')) {
-                $form
-                    ->add(//Login form
-                        'user_login',
-                        'user_login',
-                        array(
-                            'mapped' => false,
-                            /** @Ignore */
-                            'label' => false
-                        )
-                    )->add(//Registration form
-                        'user',
-                        'user_registration',
-                        array(
-                            /** @Ignore */
-                            'label' => false
-                        )
-                    );
-            } else {//Logged
-
-                $form->add(
-                    'user',
-                    'entity_hidden',
-                    array(
-                        'data' => $this->securityContext->getToken()->getUser(),
-                        'class' => 'Cocorico\UserBundle\Entity\User',
-                        'data_class' => null
-                    )
-                );
-            }
-        };
-
-        $builder->addEventListener(
-            FormEvents::PRE_SET_DATA,
-            function (FormEvent $event) use ($formUserModifier) {
-                $formUserModifier($event->getForm());
-            }
+        //Dispatch LISTING_NEW_FORM_BUILD Event. Listener listening this event can add fields and validation
+        //Used for example to add fields to new listing form
+        $this->dispatcher->dispatch(
+            ListingFormEvents::LISTING_NEW_FORM_BUILD,
+            new ListingFormBuilderEvent($builder)
         );
-
-        /**
-         * Login user management
-         *
-         * @param FormInterface $form
-         */
-        $formUserLoginModifier = function (FormInterface $form) {
-            if ($form->has('user_login')) {
-                $userLoginData = $form->get('user_login')->getData();
-                $username = $userLoginData["_username"];
-                $password = $userLoginData["_password"];
-
-                if ($username || $password) {
-                    /** @var $user User */
-                    $user = $this->loginManager->loginUser($username, $password);
-                    if ($user) {
-                        $form->getData()->setUser($user);
-                        //Remove user registration form
-                        //Remove user registration and login form and add user field
-                        $form->remove("user");
-                        $form->remove("user_login");
-                        $form->add(
-                            'user',
-                            'entity_hidden',
-                            array(
-                                'data' => $this->securityContext->getToken()->getUser(),
-                                'class' => 'Cocorico\UserBundle\Entity\User',
-                                'data_class' => null
-                            )
-                        );
-
-                    } else {
-                        $form['user_login']['_username']->addError(
-                            new FormError(self::$credentialError)
-                        );
-                        //TODO: Disable form register errors when try to login with error
-                    }
-
-                }
-            }
-        };
-
-        $builder->addEventListener(
-            FormEvents::SUBMIT,
-            function (FormEvent $event) use ($formUserLoginModifier) {
-                $formUserLoginModifier($event->getForm());
-            }
-        );
-
     }
 
-
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\CoreBundle\Entity\Listing',
-                'intention' => 'listing_new',
+                'csrf_token_id' => 'listing_new',
                 'translation_domain' => 'cocorico_listing',
-                'cascade_validation' => true,
+                'constraints' => new Valid(),
                 //'validation_groups' => array('Listing'),
             )
         );
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'listing_new';
     }
 
     /**
-     * JMS Translation messages
+     * JMS Translation messages.
      *
      * @return array
      */
@@ -282,7 +215,6 @@ class ListingNewType extends AbstractType implements TranslationContainerInterfa
         $messages = array();
         $messages[] = new Message(self::$tacError, 'cocorico');
         $messages[] = new Message(self::$credentialError, 'cocorico');
-        $messages[] = new Message(self::$emptyTitle, 'cocorico_listing');
 
         return $messages;
     }

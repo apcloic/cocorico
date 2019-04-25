@@ -11,12 +11,14 @@
 
 namespace Cocorico\MessageBundle\Admin;
 
-use Sonata\AdminBundle\Admin\Admin;
+use Cocorico\MessageBundle\Entity\Message;
+use Cocorico\UserBundle\Repository\UserRepository;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
 
 
-class MessageAdmin extends Admin
+class MessageAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'message';
@@ -33,28 +35,44 @@ class MessageAdmin extends Admin
         $this->locales = $locales;
     }
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Message $message */
+        $message = $this->getSubject();
+
+        $senderQuery = null;
+        if ($message) {
+            /** @var UserRepository $userRepository */
+            $userRepository = $this->modelManager->getEntityManager('CocoricoUserBundle:User')
+                ->getRepository('CocoricoUserBundle:User');
+
+            $senderQuery = $userRepository->getFindOneQueryBuilder($message->getSender()->getId());
+        }
+
         $formMapper
             ->add(
                 'sender',
-                null,
+                'sonata_type_model',
                 array(
-                    'read_only' => true,
+                    'query' => $senderQuery,
                     'disabled' => true,
-                ),
-                array()
+                )
             )
             ->add(
                 'createdAt',
                 null,
                 array(
-                    'read_only' => true,
                     'disabled' => true,
-                ),
-                array()
+                )
             )
-            ->add('body', null, array(), array())
+            ->add(
+                'body',
+                null,
+                array(
+                    'disabled' => true,
+                )
+            )
             ->end();
     }
 

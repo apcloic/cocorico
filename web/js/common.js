@@ -1,4 +1,5 @@
 var DEBUG = true;
+
 function console_log() {
     if (DEBUG) {
         if (console) {
@@ -31,7 +32,7 @@ $(function () {
         return false;
     });
     // end of menu javascript
-    //
+
     $('.display-tab .dropdown-menu li a').on("click", function (e) {
         var selectTabs = $(this).parents('.display-tab').attr('data-id');
         if (selectTabs == 'offerer' || selectTabs == 'asker') {
@@ -96,13 +97,6 @@ $(function () {
         });
     }
 
-    // Contact me form show hide
-    $('form.form-msg').on('click', 'a.contact-opener', function (evt) {
-        $('.jcf-textarea .jcf-scrollable-wrapper').css('height', '143px');
-        $('#message_body').css('height', '143px');
-        $(this).next('.form-holder').slideToggle();
-    });
-
     //Payin dashboard switcher
     $("input[name=radio-payin-switcher]:radio").change(function () {
         window.location = $(this).val();
@@ -111,11 +105,29 @@ $(function () {
     // Facebook unwanted has characters
     cleanHash();
 
-    //Sync time fields for times in duration mode
-    syncTimeFields($(".time-fields"));
-
     fixIEMobile10();
+    // Clearable input types
+    $('input.clearable, .clearable input[type=text]').clearSearch({
+        callback: function () {
+        }
+    });
+    
+    handleButtonClick();
 });
+
+/**
+ * Simulate user click on a button type submit to make SF isClicked working if the click is done programmatically
+ */
+function handleButtonClick() {
+    $("button[type=submit]").on('click', function (e) {
+        var btnName = $(this).attr('name');
+        var btnId = $(this).attr('id');
+        if (btnId && btnName) {
+            $(this).closest('form').find("input[type=hidden]#" + btnId).remove();
+            $(this).closest('form').append('<input id="' + btnId + '" name="' + btnName + '" type="hidden" value="1">');
+        }
+    });
+}
 
 /**
  * Fix IE mobile
@@ -134,6 +146,7 @@ function fixIEMobile10() {
 
 /**
  * Init Multi Select Box
+ * See fields.html > listing_category_widget_options_tree for indentation management
  *
  * @param elt
  * @param allSelectedText
@@ -145,15 +158,76 @@ function initMultiSelect(elt, allSelectedText, noneSelectedText, numSelectedText
 
     width = typeof width !== 'undefined' ? width : '180px';
 
+    //Replace 160 by 'nbsp'
+    $(elt).find('option').each(function (index) {
+        $(this).html($(this).text().replace(/&#160;&#160;&#160;/g, "&nbsp;&nbsp;&nbsp;"));
+    });
+
     $(elt).multiselect({
-        buttonWidth: width,
+        //buttonWidth: width,
         allSelectedText: allSelectedText,
         nonSelectedText: noneSelectedText,
         nSelectedText: numSelectedText,
         numberDisplayed: 1,
         enableClickableOptGroups: true,
         enableFiltering: true,
-        enableCaseInsensitiveFiltering: true
+        enableCaseInsensitiveFiltering: true,
+        buttonText: function (options, select) {
+            //Replace nbsp by ''
+            if (options.length === 0) {
+                return this.nonSelectedText;
+            }
+            else if (this.allSelectedText
+                && options.length === $('option', $(select)).length
+                && $('option', $(select)).length !== 1
+                && this.multiple) {
+
+                if (this.selectAllNumber) {
+                    return this.allSelectedText + ' (' + options.length + ')';
+                }
+                else {
+                    return this.allSelectedText;
+                }
+            }
+            else if (options.length > this.numberDisplayed) {
+                return options.length + ' ' + this.nSelectedText;
+            }
+            else {
+                var selected = '';
+                var delimiter = this.delimiterText;
+
+                options.each(function () {
+                    var label = ($(this).attr('label') !== undefined) ?
+                        $(this).attr('label').replace(/&nbsp;&nbsp;&nbsp;/g, '').replace(' - ', '') :
+                        $(this).html().replace(/&nbsp;&nbsp;&nbsp;/g, '').replace(' - ', '');
+
+                    selected += label + delimiter;
+                });
+
+                return selected.substr(0, selected.length - 2);
+            }
+        },
+        buttonTitle: function (options, select) {
+            if (options.length === 0) {
+                return this.nonSelectedText;
+            }
+            else {
+                var selected = '';
+                var delimiter = this.delimiterText;
+
+                options.each(function () {
+                    var label = ($(this).attr('label') !== undefined) ?
+                        $(this).attr('label').replace(/&nbsp;&nbsp;&nbsp;/g, '').replace(' - ', '') :
+                        $(this).html().replace(/&nbsp;&nbsp;&nbsp;/g, '').replace(' - ', '');
+                    selected += $.trim(label) + delimiter;
+                });
+                return selected.substr(0, selected.length - 2);
+            }
+        }
+    });
+
+    $(elt).next().find('.multiselect-group label').each(function (index) {
+        $(this).html($(this).text().replace(/&#160;&#160;&#160;/g, "&nbsp;&nbsp;&nbsp;"));
     });
 }
 
@@ -257,14 +331,11 @@ function convertCurrency(amount, from, to) {
         return '';
     }
 
-    var fromRate = 0;
-    var toRate = 0;
+    var fromRate = currencies[from];
+    var toRate = currencies[to];
 
     amount = amount.replace(/[^\d.,]/g, '');
     amount = parseInt(amount, 10);
-
-    fromRate = currencies[from];
-    toRate = currencies[to];
 
     if (amount && fromRate && toRate) {
         //console_log(Math.round((amount / fromRate) * toRate));
@@ -324,8 +395,8 @@ $.fn.submitAjaxForm = function (callbackSuccess) {
             beforeSend: function (xhr) {
                 $container.find(".flashes").hide();
             },
-            success: function (html) {
-                $container.replaceWith(html);
+            success: function (response, status, xhr) {
+                $container.replaceWith(response);
                 callbackSuccess();
             }
         });
@@ -334,228 +405,7 @@ $.fn.submitAjaxForm = function (callbackSuccess) {
     });
 };
 
-
-/**
- * Init datePicker in Ajax form.
- * Same than initDatepicker in jquery.main.js with ajax mode
- *
- * @param callbackSuccess function
- * @param parentDatesElt string|null Optional parent element of dates fields. Used when many date fields are on the same page
- */
-function initDatePickerAjax(callbackSuccess, parentDatesElt) {
-
-    parentDatesElt = (typeof parentDatesElt === 'undefined') ? '' : parentDatesElt + ' ';
-
-    var today = new Date();
-    //Times
-    var holderTimes = $(parentDatesElt + ".ajax-container .time-fields");
-    syncTimeFields(holderTimes);
-
-    var startHour = holderTimes.find("[id$=_start_hour]").first();
-    var endHour = holderTimes.find("[id$=_end_hour]").first();
-    var startMinute = holderTimes.find("[id$=_start_minute]").first();
-    var endMinute = holderTimes.find("[id$=_end_minute]").first();
-    var selectsTimes = holderTimes.find('select');
-
-    selectsTimes.each(function () {
-        var select = $(this);
-
-        select.on('change', function (e) {
-            if (timesAreValid(startHour, endHour, startMinute, endMinute)) {
-                submitDatePickerAjaxForm(callbackSuccess, parentDatesElt);
-            }
-        });
-    });
-
-
-    //Days
-    $(parentDatesElt + '.datepicker-holder-ajax').each(function () {
-        var holder = $(this);
-        var inputs = holder.find('input:text, input:hidden');
-        var from = inputs.filter('input.from');
-        var to = inputs.filter('input.to');
-        var nbDays = holder.parent().find('#date_range_nb_days');
-
-        inputs.each(function () {
-            var input = $(this);
-
-            input.closest('.col').find('.add-on').on('click', function (e) {
-                e.preventDefault();
-                input.focus();
-            });
-        });
-
-        inputs.datepicker({
-            dateFormat: "dd/mm/yy",
-            minDate: today,
-            onSelect: function (selectedDate, inst) {
-                var input = $(this);
-                var option = input.is(from) ? 'minDate' : 'maxDate';
-                var instance = input.data('datepicker');
-                var date = jQuery.datepicker.parseDate(instance.settings.dateFormat || jQuery.datepicker._defaults.dateFormat, selectedDate, instance.settings);
-
-                inputs.not(input).filter('input:text').datepicker('option', option, date);
-
-                if (input.is(from)) {
-                    if (to.attr('type') == 'text') {//Days are displayed range mode (cocorico.days_display_mode: range)
-                        setTimeout(function () {
-                            to.focus();
-                        }, 100);
-                    } else if (to.attr('type') == 'hidden') {//Day are displayed in duration mode
-                        setEndDay(input, to, nbDays);
-                        if (timesAreValid(startHour, endHour, startMinute, endMinute)) {
-                            submitDatePickerAjaxForm(callbackSuccess, parentDatesElt);
-                        }
-                    }
-                }
-
-                if (from.val() && to.val() && input.is(to) && !input.is(":focus")) {
-                    if (timesAreValid(startHour, endHour, startMinute, endMinute)) {
-                        submitDatePickerAjaxForm(callbackSuccess, parentDatesElt);
-                    }
-                }
-            }
-        });
-
-        nbDays.on('change', function () {
-            setEndDay(from, to, $(this));
-            if (timesAreValid(startHour, endHour, startMinute, endMinute)) {
-                submitDatePickerAjaxForm(callbackSuccess, parentDatesElt);
-            }
-        });
-    });
-
-
-}
-
-/**
- * Set end day from start day and nb days field
- */
-function setEndDay($from, $to, $nbDays) {
-    var dateStart = $from.datepicker('getDate');
-    var nbDaysVal = parseInt($nbDays.val());
-    if (endDayIncluded) {//Global var. Defined in base.html.twig
-        nbDaysVal -= 1;
-    }
-    dateStart.setDate(dateStart.getDate() + nbDaysVal);
-    $to.datepicker('setDate', dateStart);
-}
-
-
-/**
- * Submit form with date picker and time fields
- *
- * @param callbackSuccess
- * @param parentDatesElt
- */
-function submitDatePickerAjaxForm(callbackSuccess, parentDatesElt) {
-
-    parentDatesElt = (typeof parentDatesElt === 'undefined') ? '' : parentDatesElt + ' ';
-
-    //console_log('submitDatePickerAjaxForm');
-    $(parentDatesElt + '.datepicker-holder-ajax').each(function () {
-        var holder = $(this);
-        var inputs = holder.find('input:text, input:hidden');
-        var from = inputs.filter('input.from');
-        var to = inputs.filter('input.to');
-
-        var holderTimes = $(parentDatesElt + ".ajax-container .time-fields");
-        var startHour = holderTimes.find("[id$=_start_hour]").first();
-        var endHour = holderTimes.find("[id$=_end_hour]").first();
-        var startMinute = holderTimes.find("[id$=_start_minute]").first();
-        var endMinute = holderTimes.find("[id$=_end_minute]").first();
-
-        if (from.val() && to.val()) {
-            if (timesAreValid(startHour, endHour, startMinute, endMinute)) {
-                var container = from.closest('.ajax-container');
-                container.submitAjaxForm(callbackSuccess);
-                container.find("form").submit();
-            }
-        }
-    });
-}
-
-
-/**
- *
- * Sync time fields if exist. For now sync times in duration mode.
- *
- * @param $timeFieldsContainers
- */
-function syncTimeFields($timeFieldsContainers) {
-
-    $timeFieldsContainers.each(function () {
-        var holder = $(this);
-
-        //Times are displayed in duration mode (cocorico.times_display_mode: duration)
-        if (holder.find("#time_range_nb_minutes").length) {
-            var $fromHour = holder.find("#time_range_start_hour");
-            var $fromMinute = holder.find("#time_range_start_minute");
-            var $toHour = holder.find("#time_range_end_hour");
-            var $toMinute = holder.find("#time_range_end_minute");
-            var $nbMinutes = holder.find("#time_range_nb_minutes");
-
-            $fromHour.add($fromMinute).add($nbMinutes).on("change", function () {
-                setEndTime($fromHour, $fromMinute, $toHour, $toMinute, $nbMinutes);
-            });
-
-            setEndTime($fromHour, $fromMinute, $toHour, $toMinute, $nbMinutes);
-        }
-    });
-}
-
-/**
- *
- * Set end time from start time and nb minutes field
- *
- * @param $fromHour
- * @param $fromMinute
- * @param $toHour
- * @param $toMinute
- * @param $nbMinutes
- */
-function setEndTime($fromHour, $fromMinute, $toHour, $toMinute, $nbMinutes) {
-    if ($fromHour.val() != '' && $fromMinute.val() != '' && $nbMinutes.val() != '') {
-        var startTime = moment($fromHour.val() + ":" + $fromMinute.val(), "HH:mm");
-        startTime = startTime.add($nbMinutes.val(), "minute");
-        //console.log(startTime);
-        $toHour.val(startTime.format("HH"));
-        $toMinute.val(startTime.format("mm"));
-    } else {
-        $toHour.add($toMinute).val('');
-    }
-}
-
-
-/**
- * Check times values if exist
- *
- * @param startHour
- * @param endHour
- * @param startMinute
- * @param endMinute
- * @returns {boolean}
- */
-function timesAreValid(startHour, endHour, startMinute, endMinute) {
-    if (startHour.length && endHour.length) {
-        if ($.isNumeric(startHour.val()) && $.isNumeric(endHour.val()) &&
-            $.isNumeric(startMinute.val()) && $.isNumeric(endMinute.val())) {
-            var startHourVal = parseInt(startHour.val());
-            var endHourVal = parseInt(endHour.val());
-
-            if (startHourVal >= endHourVal) {
-                $("#time-error").show();
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-/**
+ /**
  * Bind profile switch change event.
  * Submit form on change.
  */
@@ -569,10 +419,9 @@ $('input[name="profileSwitch[profile]"]').on("change", function () {
  */
 function getNbUnReadMessages(url) {
     $.ajax({
-        type: 'POST',
+        type: 'GET',
         url: url,
-        success: function (translateData) {
-            var result = $.parseJSON(translateData);
+        success: function (result) {
             if (result.total > 0) {
                 $('#nb-unread-msg').html(" (" + result.total + ")");
             }
@@ -656,6 +505,13 @@ $.fn.extend({
     }
 });
 
+/**
+ * Refresh modal on load
+ */
+$('body').on('hidden.bs.modal', '.modal', function () {
+    $(this).removeData('bs.modal');
+    $(this).find(".modal-content").html('');
+});
 
 /**
  * Handle Unauthorised Ajax Access
@@ -711,5 +567,29 @@ function handleUnauthorisedAjaxAccess(loginUrl) {
                 }
             };
         }
+    });
+})(jQuery);
+
+
+function toggleCompanyNameInput(input) {
+    if (!$(input).is(':checked')) {
+        return;
+    }
+    if ($(input).val() == 2) {
+        $('.target-company-name').show();
+        $('.target-company-name input').addClass('required');
+    } else {
+        $('.target-company-name').hide();
+        $('.target-company-name input').removeClass('required');
+    }
+}
+
+(function ($) {
+    $('.trigger-company-name input').each(function (k, el) {
+        toggleCompanyNameInput(el);
+        $(el).on('click', function () {
+            toggleCompanyNameInput(el);
+        });
+
     });
 })(jQuery);

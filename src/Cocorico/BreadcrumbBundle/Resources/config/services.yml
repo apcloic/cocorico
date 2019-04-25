@@ -5,7 +5,7 @@ services:
     cocorico.breadcrumbs_yaml_locator:
         class: Symfony\Component\Config\FileLocator
         arguments:
-            - %kernel.root_dir%/../src/Cocorico/BreadcrumbBundle/Resources/content/
+            - "%kernel.root_dir%/../src/Cocorico/BreadcrumbBundle/Resources/content/"
 
     cocorico.breadcrumbs_loader:
         class: Cocorico\BreadcrumbBundle\Services\BreadcrumbsYamlLoader
@@ -19,7 +19,8 @@ services:
             - "@white_october_breadcrumbs"
             - "@jms_i18n_routing.router"
             - "@cocorico.breadcrumbs_loader"
-            - "@translator"
+            - "@translator.default"
+            - "@doctrine.orm.entity_manager"
 
     cocorico.translator.breadcrumbs_extractor:
         class: Cocorico\BreadcrumbBundle\Translator\BreadcrumbsExtractor

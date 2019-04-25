@@ -11,6 +11,7 @@
 
 namespace Cocorico\PageBundle\Controller\Frontend;
 
+use Cocorico\CoreBundle\Utils\PHP;
 use Cocorico\PageBundle\Repository\PageRepository;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
@@ -25,6 +26,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class PageController extends Controller
 {
+
     /**
      * show page depending upon the slug available.
      *
@@ -36,6 +38,8 @@ class PageController extends Controller
      * @param  string  $slug
      *
      * @return \Symfony\Component\HttpFoundation\Response
+     *
+     * @throws NotFoundHttpException
      */
     public function showAction(Request $request, $slug)
     {
@@ -50,7 +54,7 @@ class PageController extends Controller
             throw new NotFoundHttpException(sprintf('%s page not found.', $slug));
         }
 
-        $this->get('cocorico.helper.global')->log($request->getHttpHost());
+        PHP::log($request->getHttpHost());
 
         return $this->render(
             '@CocoricoPage/Frontend/Page/show.html.twig',

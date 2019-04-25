@@ -12,8 +12,10 @@
 namespace Cocorico\CoreBundle\Form\Type;
 
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Validator\Constraints\Valid;
 
 class ListingDiscountType extends AbstractType
 {
@@ -26,7 +28,7 @@ class ListingDiscountType extends AbstractType
         $builder
             ->add(
                 'discount',
-                'integer',
+                IntegerType::class,
                 array(
                     'label' => 'listing_edit.form.discount',
                     'attr' => array(
@@ -39,7 +41,7 @@ class ListingDiscountType extends AbstractType
             )
             ->add(
                 'fromQuantity',
-                'integer',
+                IntegerType::class,
                 array(
                     'label' => 'listing_edit.form.from_quantity',
                     'attr' => array(
@@ -53,21 +55,24 @@ class ListingDiscountType extends AbstractType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\CoreBundle\Entity\ListingDiscount',
                 'translation_domain' => 'cocorico_listing',
-                'cascade_validation' => true,
+                'constraints' => new Valid(),
             )
         );
     }
 
-    public function getName()
+    /**
+     * {@inheritdoc}
+     */
+    public function getBlockPrefix()
     {
         return 'listing_discount';
     }

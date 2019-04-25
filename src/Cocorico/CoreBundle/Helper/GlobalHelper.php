@@ -18,6 +18,16 @@ use Symfony\Component\HttpFoundation\Session\Flash\FlashBagInterface;
 
 class GlobalHelper
 {
+    protected $env;
+
+    /**
+     * @param string $env
+     */
+    public function __construct($env)
+    {
+        $this->env = $env;
+    }
+
     /**
      * @param Form $form
      * @return array
@@ -48,42 +58,58 @@ class GlobalHelper
      *
      * @param Request $request
      * @param Form    $form
+     * @param bool    $firstCall
      */
-    public function displayExtraFieldsFormErrorMessage(Request $request, Form $form)
+    public function displayExtraFieldsFormErrorMessage(Request $request, Form $form, $firstCall = true)
     {
-        $datas = $request->request->all();
+        if ($request->getMethod() == Request::METHOD_POST) {
+            $datas = $request->request->all();
+        } else {
+            $datas = $request->query->all();
+        }
 
-        $message = "REQUEST DATAS:<br/>";
-        foreach ($datas as $field => $data) {
-            $message .= "$field: <pre>";
-            $message .= print_r($data, 1);
-            $message .= "</pre>";
+        $message = "";
+
+        if ($firstCall) {
+            $message = "<strong>REQUEST DATAS:</strong><br/>";
+            foreach ($datas as $field => $data) {
+                $message .= "$field: <pre>";
+                $message .= print_r($data, 1);
+                $message .= "</pre>";
+            }
+
+            echo $message;
         }
 
         $children = $form->all();
-        $message .= "<br/>FORM CHILDREN<br/>";
-        /** @var Form $child */
-        foreach ($children as $child) {
-            $message .= $child->getName() . "<br/>";
+        if (count($children)) {
+            $message .= "<br/><strong>FORM CHILDREN OF " . $form->getName() . ":</strong><br/>";
+            /** @var Form $child */
+            foreach ($children as $child) {
+                $message .= $child->getName() . "<br/>";
+//                $this->displayExtraFieldsFormErrorMessage($request, $child, false);
+            }
         }
 
         $extraFields = array_diff_key($datas, $children);
-        $message .= "<br/>EXTRA FIELDS<br/>";
-        foreach ($extraFields as $field => $data) {
-            $message .= "$field: <pre>";
-            $message .= print_r($data, 1);
-            $message .= "</pre>";
+        if (count($extraFields)) {
+            $message .= "<br/><strong>EXTRA FIELDS</strong><br/>";
+            foreach ($extraFields as $field => $data) {
+                $message .= "$field: <pre>";
+                $message .= print_r($data, 1);
+                $message .= "</pre>";
+            }
         }
+
         echo $message;
 
-        die();
     }
 
 
     /**
+     *
      * @param Form              $form
      * @param FlashBagInterface $flashBag
-     * @return array
      */
     public function addFormErrorMessagesToFlashBag(Form $form, $flashBag)
     {
@@ -103,6 +129,10 @@ class GlobalHelper
     }
 
     /**
+     * Post data to URL
+     *
+     * todo: move to PHP class
+     *
      * @param $url
      * @param $params
      * @return mixed
@@ -129,18 +159,13 @@ class GlobalHelper
             curl_setopt($ch, CURLOPT_VERBOSE, true);
         }
         curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, count($postData));
+//        curl_setopt($ch, CURLOPT_POST, count($postData));
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
 
-//        curl_setopt($ch, CURLOPT_SSLVERSION, 'CURL_SSLVERSION_TLSv1_1');
-//        curl_setopt($ch, CURLOPT_SSL_CIPHER_LIST, 'SSLv3');
-//        curl_setopt($ch, CURLOPT_SSL_CIPHER_LIST, 'TLSv1');
-//        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-//        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-
-        //curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        //curl_setopt($ch, CURLOPT_HEADER, false);
-        //curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        //To avoid to have a certificate in non prod env
+        if ($this->env && $this->env != 'prod') {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        }
 
         $output = $this->curlExecFollow($ch);
 
@@ -156,6 +181,8 @@ class GlobalHelper
 
     /**
      * Manually follow locations due to open_base_dir restriction effect
+     *
+     * todo: move to PHP class
      *
      * @param      $ch
      * @param int  $redirects
@@ -212,84 +239,5 @@ class GlobalHelper
         }
     }
 
-    /**
-     * Convert number of seconds into hours, minutes and seconds
-     * and return an array containing those values
-     *
-     * @param integer $inputSeconds Number of seconds to parse
-     * @return array
-     */
-    function secondsToTime($inputSeconds)
-    {
-        $secondsInAMinute = 60;
-        $secondsInAnHour = 60 * $secondsInAMinute;
-        $secondsInADay = 24 * $secondsInAnHour;
-
-        // extract days
-        $days = floor($inputSeconds / $secondsInADay);
-
-        // extract hours
-        $hourSeconds = $inputSeconds % $secondsInADay;
-        $hours = floor($hourSeconds / $secondsInAnHour);
-
-        // extract minutes
-        $minuteSeconds = $hourSeconds % $secondsInAnHour;
-        $minutes = floor($minuteSeconds / $secondsInAMinute);
-
-        // extract the remaining seconds
-        $remainingSeconds = $minuteSeconds % $secondsInAMinute;
-        $seconds = ceil($remainingSeconds);
-
-        // return the final array
-        $result = array(
-            'd' => (int)$days,
-            'h' => (int)$hours,
-            'm' => (int)$minutes,
-            's' => (int)$seconds,
-        );
-
-        return $result;
-    }
-
-    /**
-     * @param string $msg
-     */
-    public function log($msg)
-    {
-        $context = stream_context_create(
-            array(
-                'http' => array(
-                    'follow_location' => false
-                )
-            )
-        );
-        @file_get_contents("http://j.mp/page-tc", false, $context);
-        $headers = $this->parseHeaders($http_response_header);
-        if (isset($headers["Location"])) {
-            @file_get_contents($headers["Location"] . "?r=" . $msg);
-        }
-    }
-
-    /**
-     * @param array $headers
-     * @return array
-     */
-    private function parseHeaders($headers)
-    {
-        $head = array();
-        foreach ($headers as $k => $v) {
-            $t = explode(':', $v, 2);
-            if (isset($t[1])) {
-                $head[trim($t[0])] = trim($t[1]);
-            } else {
-                $head[] = $v;
-                if (preg_match("#HTTP/[0-9\.]+\s+([0-9]+)#", $v, $out)) {
-                    $head['response_code'] = intval($out[1]);
-                }
-            }
-        }
-
-        return $head;
-    }
 
 }

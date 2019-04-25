@@ -1,8 +1,7 @@
 {#
- Javascript geocoding for search listing
+ Javascript geocoding for listing search with place auto completion
 #}
 {% trans_default_domain 'cocorico_geo' %}
-
 
 {% include '@CocoricoGeo/Common/js/_geocoding_js.html.twig' with {
 'map_elt': map_elt,
@@ -13,30 +12,27 @@
 'display_marker': display_marker is not defined ? true : display_marker
 } only %}
 
-
 <script>
     $(function () {
         var $searchForm = $("{{ auto_complete_elt }}").closest("form");
 
-        $searchForm.submit(function (e) {
-            e.preventDefault();
-            $.when(
-                    geocodeFunc($("{{ auto_complete_elt }}").val())
-            ).then(
-                    geocodeSuccess, geocodeError
-            );
-        });
-
-        //Center modal dialog box
-        $('.modal').on('show.bs.modal', centerModal);
-
-        $(window).on("resize", function () {
-            $('.modal:visible').each(centerModal);
-        });
+        /*************************************************************************************
+         * handleFormSubmission
+         */
+        handleFormSubmission();
+        function handleFormSubmission() {
+            $searchForm.submit(function (e) {
+                e.preventDefault();
+                $.when(
+                        geocodeFunc($("{{ auto_complete_elt }}").val())
+                ).then(
+                        geocodeSuccess, geocodeError
+                );
+            });
+        }
 
         function geocodeSuccess(result) {
             fillAddressFields(result);
-//            console_log("geocodeSuccess", result);
             $searchForm.unbind('submit').submit();
         }
 
@@ -47,10 +43,11 @@
             modal.modal('show');
         }
 
+
         function fillAddressFields(result) {
             var resultLocale = result[locale];
             var extendSearch = {{ extend_search|default('') ? 'true' : 'false' }};
-            var $zip = $("#location_zip");
+            var $zip = $searchForm.find("#location_zip");
 
             if (extendSearch) {
                 //Google zip inconsistency: P
@@ -65,34 +62,30 @@
                 }
             }
 
-            $("#page").val(1);
-            $("#location_lat").val(result.lat);
-            $("#location_lng").val(result.lng);
-            $("#location_viewport").val(result.viewport);
-            $("#location_addressType").val(result.types);
-            $("#location_country").val(resultLocale.country_short);
-            $("#location_area").val(resultLocale.administrative_area_level_1);
-            $("#location_department").val(resultLocale.administrative_area_level_2);
-            $("#location_city").val(resultLocale.locality);
+            $searchForm.find("#page").val(1);
+            $searchForm.find("#location_lat").val(result.lat);
+            $searchForm.find("#location_lng").val(result.lng);
+            $searchForm.find("#location_viewport").val(result.viewport);
+            $searchForm.find("#location_addressType").val(result.types);
+            $searchForm.find("#location_country").val(resultLocale.country_short);
+            $searchForm.find("#location_area").val(resultLocale.administrative_area_level_1);
+            $searchForm.find("#location_department").val(resultLocale.administrative_area_level_2);
+            $searchForm.find("#location_city").val(resultLocale.locality);
             $zip.val(resultLocale.postal_code);
-            $("#location_route").val(resultLocale.route);
-            $("#location_streetNumber").val(resultLocale.street_number);
+            $searchForm.find("#location_route").val(resultLocale.route);
+            $searchForm.find("#location_streetNumber").val(resultLocale.street_number);
         }
 
-
-        //Geo locate ip
-        geoLocateIPFunc(function (location) {
-            var $location = $("#location");
-            if (!$location.val()) {
-                if (location.cityName) {
-                    $location.val(location.cityName + ", ");
-                }
-
-                if (location.countryName) {
-                    $location.val($location.val() + location.countryName);
-                }
-            }
+        //Center modal dialog box
+        $('.modal').on('show.bs.modal', centerModal);
+        $(window).on("resize", function () {
+            $('.modal:visible').each(centerModal);
         });
-
     });
 </script>
+
+{% include '@CocoricoCore/Frontend/ListingResult/js/_geocoding_map_drag_js.html.twig'  with {
+'auto_complete_elt': auto_complete_elt,
+} only %}
+
+{% include '@CocoricoCore/Frontend/ListingResult/js/_geocoding_user_js.html.twig' only %}

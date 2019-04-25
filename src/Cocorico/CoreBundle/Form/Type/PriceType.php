@@ -14,10 +14,11 @@ namespace Cocorico\CoreBundle\Form\Type;
 use Cocorico\CoreBundle\Form\DataTransformer\PriceTransformer;
 use Lexik\Bundle\CurrencyBundle\Currency\Converter;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\MoneyType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormView;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class PriceType extends AbstractType
 {
@@ -31,7 +32,7 @@ class PriceType extends AbstractType
      * @param int       $pricePrecision
      * @param Converter $currencyConverter
      */
-    public function __construct($defaultCurrency, $pricePrecision, $currencyConverter)
+    public function __construct($defaultCurrency, $pricePrecision, Converter $currencyConverter)
     {
         $this->defaultCurrency = $defaultCurrency;
         $this->currency = $defaultCurrency;
@@ -55,14 +56,14 @@ class PriceType extends AbstractType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
                 'translation_domain' => 'cocorico_listing',
-                'precision' => $this->pricePrecision,
+                'scale' => $this->pricePrecision,
                 'defaultCurrency' => $this->defaultCurrency,
                 'currency' => $this->defaultCurrency,
                 'attr' => array(
@@ -94,15 +95,14 @@ class PriceType extends AbstractType
      */
     public function getParent()
     {
-        return 'money';
+        return MoneyType::class;
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'price';
     }
-
 }

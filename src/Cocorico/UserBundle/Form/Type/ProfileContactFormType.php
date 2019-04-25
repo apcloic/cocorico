@@ -12,33 +12,43 @@
 namespace Cocorico\UserBundle\Form\Type;
 
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\CollectionType;
+use Symfony\Component\Form\Extension\Core\Type\EmailType;
+use Symfony\Component\Form\Extension\Core\Type\RepeatedType;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
+use Symfony\Component\Form\Extension\Core\Type\TimezoneType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Validator\Constraints\Valid;
 
 class ProfileContactFormType extends AbstractType
 {
 
+    /**
+     * @inheritdoc
+     */
     public function buildForm(FormBuilderInterface $builder, array $options)
     {
         $builder
             ->add(
                 'email',
-                'email',
+                EmailType::class,
                 array(
                     'label' => 'form.user.email'
                 )
             )
             ->add(
-                'phone_prefix',
-                'text',
+                'phonePrefix',
+                TextType::class,
                 array(
                     'label' => 'form.user.phone_prefix',
-                    'required' => false
+                    'required' => false,
+                    'empty_data' => '+33'
                 )
             )
             ->add(
                 'phone',
-                'text',
+                TextType::class,
                 array(
                     'label' => 'form.user.phone',
                     'required' => false
@@ -46,7 +56,7 @@ class ProfileContactFormType extends AbstractType
             )
             ->add(
                 'plainPassword',
-                'repeated',
+                RepeatedType::class,
                 array(
                     'type' => 'password',
                     'options' => array('translation_domain' => 'cocorico_user'),
@@ -64,33 +74,48 @@ class ProfileContactFormType extends AbstractType
             )
             ->add(
                 'addresses',
-                'collection',
+                CollectionType::class,
                 array(
-                    'type' => new AddressFormType(),
-                    'label' => 'form.user.phone',
-                    'required' => false
+                    'entry_type' => UserAddressFormType::class,
+                    /** @Ignore */
+                    'label' => false,
+                    'required' => false,
+                )
+            )
+            ->add(
+                'timeZone',
+                TimezoneType::class,
+                array(
+                    'label' => 'form.time_zone',
+                    'required' => true,
                 )
             );
 
 
     }
 
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    /**
+     * @inheritdoc
+     */
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\UserBundle\Entity\User',
-                'intention' => 'profile',
+                'csrf_token_id' => 'profile',
                 'translation_domain' => 'cocorico_user',
-                'cascade_validation' => true,
+                'constraints' => new Valid(),
                 'validation_groups' => array('CocoricoProfileContact'),
             )
         );
     }
 
-    public function getName()
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getBlockPrefix()
     {
         return 'user_profile_contact';
     }
-
 }

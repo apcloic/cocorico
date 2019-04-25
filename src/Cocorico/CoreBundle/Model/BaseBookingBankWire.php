@@ -12,11 +12,7 @@
 
 namespace Cocorico\CoreBundle\Model;
 
-use Cocorico\CoreBundle\Entity\Booking;
-use Cocorico\CoreBundle\Validator\Constraints as CocoricoAssert;
 use Doctrine\ORM\Mapping as ORM;
-use Knp\DoctrineBehaviors\Model as ORMBehaviors;
-use Symfony\Component\Validator\Constraints as Assert;
 
 /**
  * BaseBookingBankWire
@@ -72,7 +68,7 @@ abstract class BaseBookingBankWire
      * Set status
      *
      * @param  integer $status
-     * @return BaseBooking
+     * @return BaseBookingBankWire
      */
     public function setStatus($status)
     {
@@ -112,7 +108,7 @@ abstract class BaseBookingBankWire
      * Set amount
      *
      * @param int $amount
-     * @return Booking
+     * @return $this
      */
     public function setAmount($amount)
     {

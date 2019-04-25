@@ -13,25 +13,28 @@ namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
 use Cocorico\CoreBundle\Entity\Listing;
 use Cocorico\CoreBundle\Form\Type\ListingListingCharacteristicType;
+use Symfony\Component\Form\Extension\Core\Type\CollectionType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 /**
  * ListingEditCharacteristicType
  */
 class ListingEditCharacteristicType extends ListingEditType
 {
-
+    /**
+     * @inheritdoc
+     */
     public function buildForm(FormBuilderInterface $builder, array $options)
     {
         $builder
             ->add(
                 'listingListingCharacteristicsOrderedByGroup',
-                'collection',
+                CollectionType::class,
                 array(
-                    'type' => new ListingListingCharacteristicType($this->locale),
+                    'entry_type' => ListingListingCharacteristicType::class,
                     /** @Ignore */
                     'label' => false
                 )
@@ -49,15 +52,19 @@ class ListingEditCharacteristicType extends ListingEditType
         );
     }
 
-
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    /**
+     * @inheritdoc
+     */
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
     }
 
-    public function getName()
+    /**
+     * {@inheritdoc}
+     */
+    public function getBlockPrefix()
     {
         return 'listing_edit_characteristic';
     }
-
 }

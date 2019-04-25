@@ -11,7 +11,6 @@
 
 namespace Cocorico\UserBundle\Mailer;
 
-use Cocorico\MessageBundle\Entity\Thread;
 use Cocorico\UserBundle\Entity\User;
 use FOS\UserBundle\Model\UserInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -20,6 +19,8 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 class TwigSwiftMailer implements MailerInterface
 {
+    protected $locale;
+    protected $locales;
     protected $mailer;
     protected $router;
     protected $twig;
@@ -78,7 +79,7 @@ class TwigSwiftMailer implements MailerInterface
         $password_reset_link = $this->router->generate(
             'cocorico_user_resetting_reset',
             array('token' => $user->getConfirmationToken()),
-            true
+            UrlGeneratorInterface::ABSOLUTE_URL
         );
         $context = array(
             'user' => $user,
@@ -87,30 +88,6 @@ class TwigSwiftMailer implements MailerInterface
 
         $this->sendMessage($template, $context, $this->fromEmail, $user->getEmail());
     }
-
-
-    /**
-     *
-     * @param UserInterface $user
-     * @param Thread        $thread
-     */
-    public function sendNotificationForNewMessageToUser(UserInterface $user, Thread $thread)
-    {
-        $template = $this->parameters['templates']['new_message_user'];
-        $threadUrl = $this->router->generate(
-            'cocorico_dashboard_message_thread_view',
-            array('threadId' => $thread->getId()),
-            true
-        );
-
-        $context = array(
-            'user' => $user,
-            'thread_url' => $threadUrl
-        );
-
-        $this->sendMessage($template, $context, $this->fromEmail, $user->getEmail());
-    }
-
 
     /**
      * @param UserInterface $user
@@ -121,7 +98,7 @@ class TwigSwiftMailer implements MailerInterface
         $url = $this->router->generate(
             'cocorico_user_register_confirmation',
             array('token' => $user->getConfirmationToken()),
-            true
+            UrlGeneratorInterface::ABSOLUTE_URL
         );
         $context = array(
             'user' => $user,
@@ -151,29 +128,32 @@ class TwigSwiftMailer implements MailerInterface
             $context['locale'] = $context['user_locale'];
             $context['app']['request']['locale'] = $context['user_locale'];
         }
-        /** @var \Twig_Template $template */
-        $template = $this->twig->loadTemplate($templateName);
-        $context = $this->twig->mergeGlobals($context);
 
-        $subject = $template->renderBlock('subject', $context);
-        $context["message"] = $template->renderBlock('message', $context);
+        try {
+            /** @var \Twig_Template $template */
+            $template = $this->twig->loadTemplate($templateName);
+            $context = $this->twig->mergeGlobals($context);
 
-        $textBody = $template->renderBlock('body_text', $context);
-        $htmlBody = $template->renderBlock('body_html', $context);
+            $subject = $template->renderBlock('subject', $context);
+            $context["message"] = $template->renderBlock('message', $context);
 
-        $message = \Swift_Message::newInstance()
-            ->setSubject($subject)
-            ->setFrom($fromEmail)
-            ->setTo($toEmail);
+            $textBody = $template->renderBlock('body_text', $context);
+            $htmlBody = $template->renderBlock('body_html', $context);
 
-        if (!empty($htmlBody)) {
-            $message
-                ->setBody($htmlBody, 'text/html')
-                ->addPart($textBody, 'text/plain');
-        } else {
-            $message->setBody($textBody);
+            $message = (new \Swift_Message($subject))
+                ->setFrom($fromEmail)
+                ->setTo($toEmail);
+
+            if (!empty($htmlBody)) {
+                $message
+                    ->setBody($htmlBody, 'text/html')
+                    ->addPart($textBody, 'text/plain');
+            } else {
+                $message->setBody($textBody);
+            }
+
+            $this->mailer->send($message);
+        } catch (\Exception $e) {
         }
-
-        $this->mailer->send($message);
     }
 }

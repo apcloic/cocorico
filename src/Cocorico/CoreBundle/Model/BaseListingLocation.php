@@ -12,8 +12,8 @@
 
 namespace Cocorico\CoreBundle\Model;
 
-use Cocorico\CoreBundle\Entity\ListingLocation;
 use Doctrine\ORM\Mapping as ORM;
+use Symfony\Component\Validator\Constraints as Assert;
 
 /**
  * ListingLocation
@@ -25,6 +25,7 @@ abstract class BaseListingLocation
 
     /**
      * @ORM\Column(name="country", type="string", length=3, nullable=false)
+     * @Assert\NotBlank(message="assert.not_blank")
      *
      * @var string
      */
@@ -32,6 +33,7 @@ abstract class BaseListingLocation
 
     /**
      * @ORM\Column(name="city", type="string", length=75, nullable=false)
+     * @Assert\NotBlank(message="assert.not_blank")
      *
      * @var string
      */
@@ -67,7 +69,7 @@ abstract class BaseListingLocation
      * Set country
      *
      * @param  string $country
-     * @return ListingLocation
+     * @return $this
      */
     public function setCountry($country)
     {
@@ -90,7 +92,7 @@ abstract class BaseListingLocation
      * Set city
      *
      * @param  string $city
-     * @return ListingLocation
+     * @return $this
      */
     public function setCity($city)
     {
@@ -113,7 +115,7 @@ abstract class BaseListingLocation
      * Set zip
      *
      * @param  string $zip
-     * @return ListingLocation
+     * @return $this
      */
     public function setZip($zip)
     {
@@ -136,7 +138,7 @@ abstract class BaseListingLocation
      * Set route
      *
      * @param  string $route
-     * @return ListingLocation
+     * @return $this
      */
     public function setRoute($route)
     {
@@ -159,7 +161,7 @@ abstract class BaseListingLocation
      * Set streetNumber
      *
      * @param  string $streetNumber
-     * @return ListingLocation
+     * @return $this
      */
     public function setStreetNumber($streetNumber)
     {
@@ -176,13 +178,5 @@ abstract class BaseListingLocation
     public function getStreetNumber()
     {
         return $this->streetNumber;
-    }
-
-    /**
-     * @return string
-     */
-    public function getCompleteAddress()
-    {
-        return $this->getStreetNumber() . " " . $this->getRoute() . ", " . $this->getZip() . " " . $this->getCity();
     }
 }

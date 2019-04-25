@@ -11,15 +11,18 @@
 
 namespace Cocorico\MessageBundle\Admin;
 
+use Cocorico\MessageBundle\Entity\Thread;
+use Cocorico\ReportBundle\Repository\ListingRepository;
 use Doctrine\ORM\Query\Expr;
-use Sonata\AdminBundle\Admin\Admin;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 
 
-class ThreadAdmin extends Admin
+class ThreadAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'thread';
@@ -36,6 +39,7 @@ class ThreadAdmin extends Admin
         $this->locales = $locales;
     }
 
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -83,7 +87,6 @@ class ThreadAdmin extends Admin
                 'createdAt',
                 null,
                 array(
-                    'format' => "d/m/Y H:i",
                     'label' => 'admin.thread.createdAt.label'
                 )
             )
@@ -108,13 +111,52 @@ class ThreadAdmin extends Admin
         );
     }
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
+        /** @var Thread $thread */
+        $thread = $this->getSubject();
+
+        $listing = null;
+        if ($thread) {
+            if ($thread->getListing()) {
+                $listing = $thread->getListing();
+            } elseif ($thread->getBooking()) {
+                $listing = $thread->getBooking()->getListing();
+            }
+
+            if ($listing) {
+                /** @var ListingRepository $listingRepository */
+                $listingRepository = $this->modelManager->getEntityManager('CocoricoCoreBundle:Listing')
+                    ->getRepository('CocoricoCoreBundle:Listing');
+
+                $listingQuery = $listingRepository->getFindOneByIdAndLocaleQuery(
+                    $listing->getId(),
+                    $this->request ? $this->getRequest()->getLocale() : 'fr'
+                );
+
+                $formMapper
+                    ->add(
+                        'listing',
+                        'sonata_type_model',
+                        array(
+                            'query' => $listingQuery,
+                            'disabled' => true,
+                            'label' => 'admin.review.listing.label',
+                        )
+                    );
+            }
+        }
+
+
         $formMapper
             ->add(
                 'messages',
                 'sonata_type_collection',
                 array(
+                    // IMPORTANT!: Disable this field otherwise if child form has all its fields disabled
+                    // then the child entities will be removed while saving
+                    'disabled' => true,
                     'type_options' => array(
                         // Prevents the "Delete" option from being displayed
                         'delete' => false,
@@ -138,6 +180,7 @@ class ThreadAdmin extends Admin
         );
     }
 
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -149,14 +192,14 @@ class ThreadAdmin extends Admin
                     'field_type' => 'choice',
                     'label' => 'admin.thread.type.label'
                 ),
-                'choice',
+                ChoiceType::class,
                 array(
                     'choices' => array(
-                        'booking' => 'Reservation Message',
-                        'message' => 'Message'
+                        'Reservation Message' => 'booking',
+                        'Message' => 'message'
                     ),
-                    'empty_value' => 'admin.thread.type.label',
-                    'translation_domain' => 'SonataAdminBundle'
+                    'placeholder' => 'admin.thread.type.label',
+                    'translation_domain' => 'SonataAdminBundle',
                 )
             )
             ->add(
@@ -307,6 +350,7 @@ class ThreadAdmin extends Admin
 
         $dataSourceIt = $this->getModelManager()->getDataSourceIterator($datagrid, $this->getExportFields());
         $dataSourceIt->setDateTimeFormat('d M Y'); //change this to suit your needs
+
         return $dataSourceIt;
     }
 

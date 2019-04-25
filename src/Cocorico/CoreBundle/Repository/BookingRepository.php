@@ -19,7 +19,6 @@ use Doctrine\ORM\Query;
 
 class BookingRepository extends EntityRepository
 {
-
     /**
      *
      * @return \Doctrine\ORM\QueryBuilder
@@ -272,24 +271,42 @@ class BookingRepository extends EntityRepository
     }
 
     /**
-     * Find Expiring Bookings to alert
+     * Find expiring bookings to alert
      *
-     * @param int $bookingExpirationDelay Delay in minutes to consider a booking as expiring.
+     * @param int $expirationAlertDelay Delay in minutes to consider a booking as expiring.
+     * @param int $expirationDelay      Delay in minutes to consider a booking as expiring.
+     * @param int $acceptationDelay     Delay in minutes to consider a booking as expiring for acceptation.
+     *
      * @return \Doctrine\Common\Collections\ArrayCollection
      */
-    public function findBookingsExpiringToAlert($bookingExpirationDelay)
-    {
-        //Expiring date
+    public function findBookingsExpiringToAlert(
+        $expirationAlertDelay,
+        $expirationDelay,
+        $acceptationDelay
+    ) {
         $dateExpiring = new \DateTime();
-        $dateExpiring->sub(new \DateInterval('PT' . $bookingExpirationDelay . 'M'));
+        $dateExpiring->sub(new \DateInterval('PT' . ($expirationDelay - $expirationAlertDelay) . 'M'));
+
+        $dateAcceptationExpiring = new \DateTime('now');
+        $dateAcceptationExpiring->add(new \DateInterval('PT' . ($acceptationDelay + $expirationAlertDelay) . 'M'));
+
+        $sql = <<<SQLQUERY
+            (
+            b.newBookingAt <= :dateExpiring OR
+            CONCAT(DATE_FORMAT(b.start, '%Y-%m-%d'), ' ',  DATE_FORMAT(b.startTime, '%H:%i:%s') ) <= :dateAcceptationExpiring
+            )
+SQLQUERY;
 
         $queryBuilder = $this->getFindQueryBuilder();
         $queryBuilder
             ->where('b.status IN (:status)')
-            ->andWhere('b.newBookingAt <= :dateExpiring')
+            ->andWhere(
+                $sql
+            )
             ->andWhere('b.alertedExpiring = :alertedExpiring')
             ->setParameter('status', array(Booking::STATUS_NEW))
             ->setParameter('dateExpiring', $dateExpiring->format('Y-m-d H:i:s'))
+            ->setParameter('dateAcceptationExpiring', $dateAcceptationExpiring->format('Y-m-d H:i:s'))
             ->setParameter('alertedExpiring', false);
 
 //        echo $queryBuilder->getQuery()->getSQL();
@@ -308,14 +325,20 @@ class BookingRepository extends EntityRepository
     public function findBookingsImminentToAlert($bookingImminentDelay)
     {
         //Imminent date
-        $dateImminent = new \DateTime();
+        $dateImminent = new \DateTime('now');
         $dateImminent->add(new \DateInterval('PT' . $bookingImminentDelay . 'M'));
+
+        $sql = <<<SQLQUERY
+            (
+            CONCAT(DATE_FORMAT(b.start, '%Y-%m-%d'), ' ',  DATE_FORMAT(b.startTime, '%H:%i:%s') ) <= :dateImminent
+            )
+SQLQUERY;
 
         $queryBuilder = $this->getFindQueryBuilder();
         $queryBuilder
             ->where('b.status IN (:status)')
-            ->andWhere('b.start <= :dateImminent')
             ->andWhere('b.alertedImminent = :alertedImminent')
+            ->andWhere($sql)
             ->setParameter(
                 'status',
                 array(
@@ -332,27 +355,48 @@ class BookingRepository extends EntityRepository
     }
 
     /**
-     * Find Bookings to expire
+     * Find Bookings to expire:
+     * Either newBookingAt is less than today minus $bookingExpirationDelay
+     * Either booking start date concatenated to start time is less than today date time
      *
-     * @param int $bookingExpirationDelay Delay in minutes to consider a booking as expired.
+     * @param int $expirationDelay  Delay in minutes to consider a booking as expired.
+     * @param int $acceptationDelay Delay in minutes to consider a booking as expired for acceptation.
+     *
      * @return \Doctrine\Common\Collections\ArrayCollection
      */
-    public function findBookingsToExpire($bookingExpirationDelay)
+    public function findBookingsToExpire($expirationDelay, $acceptationDelay)
     {
-        //Expired date
+        $today = new \DateTime('now');
+
         $dateExpired = new \DateTime();
-        $dateExpired->sub(new \DateInterval('PT' . $bookingExpirationDelay . 'M'));
+        $dateExpired->sub(new \DateInterval('PT' . $expirationDelay . 'M'));
+
+        $dateAcceptationExpired = new \DateTime('now');
+        $dateAcceptationExpired->add(new \DateInterval('PT' . $acceptationDelay . 'M'));
+
+        $sql = <<<SQLQUERY
+            (
+            b.newBookingAt <= :dateExpired OR
+            CONCAT(DATE_FORMAT(b.start, '%Y-%m-%d'), ' ',  DATE_FORMAT(b.startTime, '%H:%i:%s') ) <= :dateAcceptationExpired OR
+            CONCAT(DATE_FORMAT(b.start, '%Y-%m-%d'), ' ',  DATE_FORMAT(b.startTime, '%H:%i:%s') ) <= :today
+            )
+SQLQUERY;
 
         $queryBuilder = $this->getFindQueryBuilder();
-        $queryBuilder->where('b.status IN (:status)')
-            ->andWhere('b.newBookingAt <= :dateExpired')
+        $queryBuilder
+            ->where('b.status IN (:status)')
+            ->andWhere(
+                $sql
+            )
             ->setParameter(
                 'status',
                 array(
                     Booking::STATUS_NEW,
                 )
             )
-            ->setParameter('dateExpired', $dateExpired->format('Y-m-d H:i:s'));
+            ->setParameter('dateExpired', $dateExpired->format('Y-m-d H:i:s'))
+            ->setParameter('dateAcceptationExpired', $dateAcceptationExpired->format('Y-m-d H:i:s'))
+            ->setParameter('today', $today->format('Y-m-d H:i:s'));
 
 //        echo $queryBuilder->getQuery()->getSQL();
 //        print_r($queryBuilder->getQuery()->getParameters()->toArray());
@@ -372,15 +416,15 @@ class BookingRepository extends EntityRepository
      * @param bool    $endDayIncluded
      * @param bool    $timeUnitIsDay
      *
-     * @return \Doctrine\Common\Collections\ArrayCollection
+     * @return \Doctrine\Common\Collections\ArrayCollection|Booking[]
      */
     public function findBookingsToRefuse($bookingAccepted, $endDayIncluded, $timeUnitIsDay)
     {
         $queryBuilder = $this->getFindQueryBuilder();
         $queryBuilder
             ->where('b.status IN (:status)')
-            ->andWhere('b.end >= :start')
-            ->andWhere('b.listing = :listing');
+            ->andWhere('b.listing = :listing')
+            ->andWhere('b.end >= :start');
 
         //If end day is included in booking, we refuse booking starting at this end date
         if ($endDayIncluded) {
@@ -391,31 +435,18 @@ class BookingRepository extends EntityRepository
                 ->andWhere('b.start < :end');
         }
 
-        $queryBuilder
-            ->setParameter(
-                'status',
-                array(
-                    Booking::STATUS_NEW,
-                )
-            )
+        $queryBuilder->setParameter('status', array(Booking::STATUS_NEW))
             ->setParameter('start', $bookingAccepted->getStart()->format('Y-m-d H:i:s'))
             ->setParameter('end', $bookingAccepted->getEnd()->format('Y-m-d H:i:s'))
             ->setParameter('listing', $bookingAccepted->getListing());
 
-        //If time unit is not day we refuse bookings with time range overlapping the accepted booking time range 
+        $bookingsToRefused = $queryBuilder->getQuery()->getResult();
+
         if (!$timeUnitIsDay) {
-            $queryBuilder
-                ->andWhere('b.startTime < :endTime')
-                ->andWhere('b.endTime > :startTime')
-                ->setParameter('startTime', $bookingAccepted->getStartTime()->format('Y-m-d H:i:s'))
-                ->setParameter('endTime', $bookingAccepted->getEndTime()->format('Y-m-d H:i:s'));
+            $bookingsToRefused = $bookingAccepted->getOverlapping($bookingsToRefused, $endDayIncluded);
         }
 
-
-//        echo $queryBuilder->getQuery()->getSQL();
-//        print_r($queryBuilder->getQuery()->getParameters()->toArray());
-
-        return new ArrayCollection($queryBuilder->getQuery()->getResult());
+        return new ArrayCollection($bookingsToRefused);
     }
 
 
@@ -427,7 +458,7 @@ class BookingRepository extends EntityRepository
      *                                after booking start date or booking end date.
      * @param int    $validatedDelay  Time after or before the moment the booking is considered as validated (in minutes)
      *
-     * @return \Doctrine\Common\Collections\ArrayCollection
+     * @return \Doctrine\Common\Collections\ArrayCollection|Booking[]
      *
      * @throws \Exception
      */
@@ -449,20 +480,26 @@ class BookingRepository extends EntityRepository
             )
             ->setParameter('validated', false);
 
-        $dateValidation = new \DateTime();
+        $dateValidation = new \DateTime('now');
         if ($validatedDelay >= 0) {//after moment
             $dateValidation->sub(new \DateInterval('PT' . $validatedDelay . 'M'));
         } else {//before moment
             $dateValidation->add(new \DateInterval('PT' . abs($validatedDelay) . 'M'));
         }
 
+        $sql = <<<SQLQUERY
+            (
+            CONCAT(DATE_FORMAT(b.{$validatedMoment}, '%Y-%m-%d'), ' ',  DATE_FORMAT(b.{$validatedMoment}Time, '%H:%i:%s') ) <= :dateValidation
+            )
+SQLQUERY;
+
         $queryBuilder
-            ->andWhere('b.' . $validatedMoment . ' <= :dateValidation')
+            ->andWhere($sql)
             ->setParameter('dateValidation', $dateValidation->format('Y-m-d H:i:s'));
 
 //        echo $queryBuilder->getQuery()->getSQL();
 //        print_r($queryBuilder->getQuery()->getParameters()->toArray());
-
+//die();
         return new ArrayCollection($queryBuilder->getQuery()->getResult());
     }
 

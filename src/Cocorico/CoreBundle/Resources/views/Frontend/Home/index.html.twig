@@ -8,19 +8,15 @@
     {{ 'home.meta_desc'|trans({}, 'cocorico_meta') }}
 {%- endblock -%}
 
-{% block theme 'home-page' %}
+{% block theme %}home-page{% endblock %}
 
 {% block layout %}
     {% embed '@CocoricoCore/Frontend/layout.html.twig' %}
 
         {% trans_default_domain 'cocorico_home' %}
 
-        {% block search_form %}
-            {{ render(controller('CocoricoCoreBundle:Frontend/ListingSearch:searchHomeForm')) }}
-        {% endblock %}
-
-        {% block main %}
-            <!-- visual -->
+        {% block sub_header %}
+            {#<!-- visual -->#}
             <div class="visual text-center">
                 <div class="container">
                     <div class="row">
@@ -28,18 +24,18 @@
                             <div class="title-holder">
                                 <div class="title-frame">
                                     <h1>
-                                        <span class="thin-text">Lorem</span>
-                                        ipsum dolor
-                                        <span class="text">sit amet,</span>
-                                        consectetur suspendisse.
+                                        {{ 'home.header.title'|trans|raw }}
                                     </h1>
                                 </div>
                             </div>
                         </div>
+                        {{ render(controller('CocoricoCoreBundle:Frontend/ListingSearch:searchHomeForm')) }}
                     </div>
                 </div>
             </div>
+        {% endblock %}
 
+        {% block main %}
             <!-- infoarea -->
             <div class="infoarea container">
                 <div class="row">
@@ -48,11 +44,12 @@
                         <img src="{{ asset('images/icon1.png') }}" alt="icon description" class="pull-left icon">
 
                         <div class="textbox">
-                            <h2><a href="#">Lorem ipsum dolor sit amet, consectetur adipiscing.</a></h2>
+                            <h2>
+                                <a href="#">{{ 'home.subinfo.title1'|trans|raw }}</a>
+                            </h2>
 
                             <p>
-                                Mipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut
-                                labore.
+                                {{ 'home.subinfo.desc1'|trans|raw }}
                             </p>
                         </div>
                     </div>
@@ -61,11 +58,12 @@
                         <img src="{{ asset('images/icon2.png') }}" alt="icon description" class="pull-left icon">
 
                         <div class="textbox">
-                            <h2><a href="#">Lorem ipsum dolor sit amet ?</a></h2>
+                            <h2>
+                                <a href="#">{{ 'home.subinfo.title2'|trans|raw }}</a>
+                            </h2>
 
                             <p>
-                                Mipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut
-                                labore.
+                                {{ 'home.subinfo.desc2'|trans|raw }}
                             </p>
                         </div>
                     </div>
@@ -75,18 +73,26 @@
                         <img src="{{ asset('images/icon3.png') }}" alt="icon description" class="pull-left icon">
 
                         <div class="textbox">
-                            <h2><a href="#">Lorem ipsum dolor sit amet, consect</a></h2>
+                            <h2>
+                                <a href="#">{{ 'home.subinfo.title3'|trans|raw }}</a>
+                            </h2>
 
                             <p>
-                                Mipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut
-                                labore.
+                                {{ 'home.subinfo.desc3'|trans|raw }}
                             </p>
                         </div>
                     </div>
                 </div>
             </div>
-            {{ render(controller('CocoricoCoreBundle:Frontend/Home:highRankListing', {'limit': 6 })) }}
+
+            {% include 'CocoricoCoreBundle:Frontend/Home:_high_rank.html.twig'  with {
+            'listings': listings
+            } only %}
+
+            {{ render(controller('CocoricoCoreBundle:Frontend/Home:rssFeeds')) }}
+
         {% endblock %}
+
         {% block modal %}
             {% include 'CocoricoCoreBundle:Frontend/Common:_modal.html.twig' only %}
         {% endblock %}
@@ -99,7 +105,7 @@
 
     {#Geocoding #}
     {% include '@CocoricoCore/Frontend/ListingResult/js/_geocoding_js.html.twig' with {
-    'map_elt': '#map-listing-result',
+    'map_elt': '',
     'auto_complete_elt': '#location'
     } only %}
 
@@ -112,11 +118,18 @@
 
             initMultiSelect(
                     '#categories',
-                    '{{ "multiselect.all_selected"|trans({}, "cocorico") }}',
-                    '{{ "multiselect.none_selected"|trans({}, "cocorico") }}',
-                    '{{ "multiselect.num_selected"|trans({}, "cocorico") }}',
-                    '250px'
+                    '{{ "multiselect.all_selected"|trans({}, "cocorico")|e('js') }}',
+                    '{{ "multiselect.none_selected"|trans({}, "cocorico")|e('js') }}',
+                    '{{ "multiselect.num_selected"|trans({}, "cocorico")|e('js') }}'
             );
         });
     </script>
+{% endblock %}
+
+{% block markup_jsonld %}
+    {{ parent() }}
+
+    {% include 'CocoricoSeoBundle:Frontend:Home/_index_markup.jsonld.twig' ignore missing with {
+    'listings': listings
+    } only %}
 {% endblock %}

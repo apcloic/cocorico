@@ -11,13 +11,26 @@
 
 namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
-use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Event\ListingFormBuilderEvent;
+use Cocorico\CoreBundle\Event\ListingFormEvents;
+use Cocorico\CoreBundle\Form\Type\PriceType;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class ListingEditPriceType extends AbstractType
 {
+    protected $dispatcher;
+
+    /**
+     * @param EventDispatcherInterface $dispatcher
+     */
+    public function __construct(EventDispatcherInterface $dispatcher)
+    {
+        $this->dispatcher = $dispatcher;
+    }
+
     /**
      * @param FormBuilderInterface $builder
      * @param array                $options
@@ -27,19 +40,26 @@ class ListingEditPriceType extends AbstractType
         $builder
             ->add(
                 'price',
-                'price',
+                PriceType::class,
                 array(
                     'label' => 'listing_edit.form.price',
                 )
             );
+
+        //Dispatch LISTING_EDIT_PRICE_FORM_BUILD Event. Listener listening this event can add fields and validation
+        //Used for example to add fields to price edition form
+        $this->dispatcher->dispatch(
+            ListingFormEvents::LISTING_EDIT_PRICE_FORM_BUILD,
+            new ListingFormBuilderEvent($builder)
+        );
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\CoreBundle\Entity\Listing',
@@ -49,11 +69,10 @@ class ListingEditPriceType extends AbstractType
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'listing_edit_price';
     }
-
 }

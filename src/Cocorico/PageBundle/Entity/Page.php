@@ -23,6 +23,7 @@ use Knp\DoctrineBehaviors\Model as ORMBehaviors;
  *
  * @ORM\Table(name="page",indexes={
  *    @ORM\Index(name="published_idx", columns={"published"}),
+ *    @ORM\Index(name="created_at_p_idx", columns={"createdAt"})
  *  })
  *
  */
@@ -42,7 +43,6 @@ class Page extends BasePage
 
     public function __construct()
     {
-        $this->published = false;
     }
 
     /**
@@ -63,6 +63,16 @@ class Page extends BasePage
     public function getDescription()
     {
         return (string)$this->translate()->getDescription();
+    }
+
+    public function getMetaTitle()
+    {
+        return (string)$this->translate()->getMetaTitle();
+    }
+
+    public function getMetaDescription()
+    {
+        return (string)$this->translate()->getMetaDescription();
     }
 
     public function __toString()

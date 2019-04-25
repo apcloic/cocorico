@@ -12,9 +12,10 @@
 namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Form\Type\PriceType;
 use Cocorico\CoreBundle\Validator\Constraints\ListingAvailabilitiesPrice;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 
 class ListingEditAvailabilitiesPricesType extends ListingEditAvailabilitiesType
@@ -32,7 +33,7 @@ class ListingEditAvailabilitiesPricesType extends ListingEditAvailabilitiesType
         $builder
             ->add(
                 'price_custom',
-                'price',
+                PriceType::class,
                 array(
                     'label' => 'listing_edit.form.price_custom',
                     'mapped' => false,
@@ -46,11 +47,11 @@ class ListingEditAvailabilitiesPricesType extends ListingEditAvailabilitiesType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
-        parent::setDefaultOptions($resolver);
+        parent::configureOptions($resolver);
         $resolver->setDefaults(
             array(
                 'translation_domain' => 'cocorico_listing',
@@ -59,9 +60,9 @@ class ListingEditAvailabilitiesPricesType extends ListingEditAvailabilitiesType
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'listing_edit_availabilities_prices';
     }

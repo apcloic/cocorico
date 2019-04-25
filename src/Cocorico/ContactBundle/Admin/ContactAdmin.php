@@ -12,13 +12,14 @@
 namespace Cocorico\ContactBundle\Admin;
 
 use Cocorico\ContactBundle\Entity\Contact;
-use Sonata\AdminBundle\Admin\Admin;
+use Sonata\AdminBundle\Admin\AbstractAdmin;
 use Sonata\AdminBundle\Datagrid\DatagridMapper;
 use Sonata\AdminBundle\Datagrid\ListMapper;
 use Sonata\AdminBundle\Form\FormMapper;
 use Sonata\AdminBundle\Route\RouteCollection;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 
-class ContactAdmin extends Admin
+class ContactAdmin extends AbstractAdmin
 {
     protected $translationDomain = 'SonataAdminBundle';
     protected $baseRoutePattern = 'contact';
@@ -29,6 +30,7 @@ class ContactAdmin extends Admin
         '_sort_by' => 'createdAt'
     );
 
+    /** @inheritdoc */
     protected function configureFormFields(FormMapper $formMapper)
     {
         $formMapper
@@ -77,11 +79,11 @@ class ContactAdmin extends Admin
             )
             ->add(
                 'status',
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Contact::$statusValues,
+                    'choices' => array_flip(Contact::$statusValues),
                     'label' => 'admin.contact.status.label',
-                    'translation_domain' => 'cocorico_contact'
+                    'translation_domain' => 'cocorico_contact',
                 )
             )
             ->add(
@@ -103,6 +105,8 @@ class ContactAdmin extends Admin
             ->end();
     }
 
+
+    /** @inheritdoc */
     protected function configureDatagridFilters(DatagridMapper $datagridMapper)
     {
         $datagridMapper
@@ -110,11 +114,11 @@ class ContactAdmin extends Admin
                 'status',
                 'doctrine_orm_string',
                 array(),
-                'choice',
+                ChoiceType::class,
                 array(
-                    'choices' => Contact::$statusValues,
+                    'choices' => array_flip(Contact::$statusValues),
                     'label' => 'admin.contact.status.label',
-                    'translation_domain' => 'cocorico_contact'
+                    'translation_domain' => 'cocorico_contact',
                 )
             )
             ->add(
@@ -154,6 +158,8 @@ class ContactAdmin extends Admin
             );
     }
 
+
+    /** @inheritdoc */
     protected function configureListFields(ListMapper $listMapper)
     {
         $listMapper
@@ -196,7 +202,6 @@ class ContactAdmin extends Admin
                 'createdAt',
                 null,
                 array(
-                    'format' => "d/m/Y H:i",
                     'label' => 'admin.contact.created_at.label',
                 )
             )
@@ -204,7 +209,6 @@ class ContactAdmin extends Admin
                 'updatedAt',
                 null,
                 array(
-                    'format' => "d/m/Y H:i",
                     'label' => 'admin.contact.updated_at.label',
                 )
             );

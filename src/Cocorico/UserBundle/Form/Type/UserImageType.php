@@ -11,9 +11,12 @@
 
 namespace Cocorico\UserBundle\Form\Type;
 
+use Cocorico\CoreBundle\Form\Type\EntityHiddenType;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\FileType;
+use Symfony\Component\Form\Extension\Core\Type\HiddenType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class UserImageType extends AbstractType
 {
@@ -27,7 +30,7 @@ class UserImageType extends AbstractType
         $builder
             ->add(
                 'name',
-                'hidden',
+                HiddenType::class,
                 array(
                     /** @Ignore */
                     'label' => false
@@ -35,7 +38,7 @@ class UserImageType extends AbstractType
             )
             ->add(
                 'file',
-                'file',
+                FileType::class,
                 array(
                     'image_path' => 'webPath',
                     'imagine_filter' => 'user_small',
@@ -49,7 +52,7 @@ class UserImageType extends AbstractType
             )
             ->add(
                 'position',
-                'hidden',
+                HiddenType::class,
                 array(
                     /** @Ignore */
                     'label' => false,
@@ -60,7 +63,7 @@ class UserImageType extends AbstractType
             )
             ->add(
                 'user',
-                'entity_hidden',
+                EntityHiddenType::class,
                 array(
                     'class' => 'Cocorico\UserBundle\Entity\User',
                     /** @Ignore */
@@ -70,14 +73,14 @@ class UserImageType extends AbstractType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\UserBundle\Entity\UserImage',
-                'intention' => 'user_image',
+                'csrf_token_id' => 'user_image',
                 'translation_domain' => 'cocorico_user',
                 'cascade_validation' => true,
                 /** @Ignore */
@@ -87,9 +90,9 @@ class UserImageType extends AbstractType
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'user_image';
     }

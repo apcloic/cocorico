@@ -3,10 +3,10 @@ services:
     cocorico.form.handler.listing:
         class: Cocorico\CoreBundle\Form\Handler\Frontend\ListingFormHandler
         arguments:
-            - "@request_stack"
-            - "@cocorico.listing.manager"
-            - "@cocorico_user.form.handler.registration"
-        scope: request
+        - "@security.token_storage"
+        - "@security.authorization_checker"
+        - "@request_stack"
+        - "@cocorico.listing.manager"
 
     #Booking
     cocorico.form.handler.booking:
@@ -14,8 +14,7 @@ services:
         arguments:
             - "@request_stack"
             - "@cocorico.booking.manager"
-            - "@cocorico_user.form.handler.registration"
-        scope: request
+            - "@event_dispatcher"
 
     cocorico.form.handler.booking.dashboard:
         abstract:  true
@@ -23,24 +22,19 @@ services:
             - [setRequest, ["@request_stack"]]
             - [setBookingManager, ["@cocorico.booking.manager"]]
             - [setThreadManager, ["@cocorico_message.thread_manager"]]
-            - [setMinStartDelay, ["%cocorico.booking.min_start_delay%"]]
-            - [setMinStartTimeDelay, ["%cocorico.booking.min_start_time_delay%"]]
 
     cocorico.form.handler.booking.offerer.dashboard:
         class: Cocorico\CoreBundle\Form\Handler\Dashboard\BookingOffererFormHandler
         parent: cocorico.form.handler.booking.dashboard
-        scope: request
 
     cocorico.form.handler.booking.asker.dashboard:
         class: Cocorico\CoreBundle\Form\Handler\Dashboard\BookingAskerFormHandler
         parent: cocorico.form.handler.booking.dashboard
-        scope: request
 
     cocorico.form.handler.booking_price:
         class: Cocorico\CoreBundle\Form\Handler\Frontend\BookingPriceFormHandler
         arguments:
             - "@session"
-            - "@cocorico.form.type.booking_price"
             - "@request_stack"
             - "@cocorico.listing_search_request"
             - "@cocorico.booking.manager"
@@ -56,10 +50,8 @@ services:
     cocorico.form.handler.listing_availability.price.dashboard:
         class: Cocorico\CoreBundle\Form\Handler\Dashboard\ListingAvailabilityPriceFormHandler
         parent: cocorico.form.handler.listing_availability.dashboard
-        scope: request
 
     cocorico.form.handler.listing_availability.status.dashboard:
         class: Cocorico\CoreBundle\Form\Handler\Dashboard\ListingAvailabilityStatusFormHandler
         parent: cocorico.form.handler.listing_availability.dashboard
-        scope: request
 

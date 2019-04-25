@@ -3,32 +3,51 @@
 
     @params map_elt Map element id (Optional)
     @params auto_complete_elt Place Auto Complete element id  (Optional)
+    todo: move alll *_js.html.twig to js files
 #}
-
 {% trans_default_domain 'cocorico_geo' %}
-<script type="text/javascript"
-        src="//maps.googleapis.com/maps/api/js?libraries=places{{ googlePlaceAPIKey ? '&amp;key=' ~ googlePlaceAPIKey : '' }}&amp;language={{ app.request.locale }}">
-</script>
-<script type="text/javascript"
-        src="//google-maps-utility-library-v3.googlecode.com/svn/trunk/infobox/src/infobox.js">
-</script>
 
+{% set gKey = googlePlaceAPIKey ? '&key=' ~ googlePlaceAPIKey : '' %}
+
+<script type="text/javascript"
+        src="//maps.googleapis.com/maps/api/js?libraries=places&language={{ app.request.locale }}{{ gKey|raw }}">
+</script>
+<script type="text/javascript"
+        src="{{ asset('js/vendor/gmap-infobox.js') }}">
+</script>
+<script type="text/javascript"
+        src="{{ asset('js/vendor/gmap-marker-clusterer.js') }}">
+</script>
+<script type="text/javascript"
+        src="{{ asset('js/vendor/gmap-marker-with-label.js') }}">
+</script>
+<style>
+    .gmap-marker-label {
+        color: #fff;
+        font-size: 16px;
+    }
+</style>
 <script>
     var geocoder, map, marker, autoComplete, latlng, boundingBox, markerDraggable;
+    var displayMarker = {{ display_marker is not defined or display_marker ? "true" : "false" }};
+    var markers = {};//Markers on the listing result map
+    var markerCluster;//Markers cluster on the listing result map
+    var mapDragMode = false; // True when the user drag or zoom the map on listing result page
+    var mapIsLoaded = false;//True when the map has been loaded the first time
+    var countriesEnabled = {{ cocorico_listing_countries|json_encode|raw }};
 
     //Functions
     var initializeGMapFunc, geocodeFunc, geocodeJSONFunc, reverseGeocodeFunc, formatGeocodingResultFunc,
-            translateGeocodeResultFunc, refreshMapFunc, refreshMapJSONFunc, setMarkersFunc, extendSearchLocationFunc,
-            geoLocateIPFunc;
+        translateGeocodeResultFunc, refreshMapFunc, refreshMapJSONFunc, setMarkersFunc, extendSearchLocationFunc,
+        geoLocateIPFunc;
 
     $(function () {
         //var maxZoom = 18;
-        var defaultLat = {{ default_lat|default(46.227638) }};
-        var defaultLng = {{ default_lng|default(2.213749000000007) }};
-        var defaultZoom = {{ default_zoom|default(4) }};
+        var defaultLat = '{{ (default_lat|default(46.227638))|e('js') }}';
+        var defaultLng = '{{ (default_lng|default(2.213749000000007))|e('js') }}';
+        var defaultZoom = {{ (default_zoom|default(4))|e('js') }};
         var mapElt = $("{{ map_elt|default('') }}");
         var autoCompleteElt = $("{{ auto_complete_elt|default('') }}");
-        var displayMarker = {{ display_marker is not defined or display_marker ? "true" : "false" }};
         var markerDraggable = {{ marker_draggable is not defined or not marker_draggable ? "false" : "true" }};
         var ipInfoDbAPIKey = "{{ ipInfoDbAPIKey|default('') }}";
 
@@ -46,7 +65,10 @@
                 var mapOptions = {
                     zoom: defaultZoom,
                     center: latlng,
-                    scrollwheel: false
+                    scrollwheel: false,
+                    zoomControlOptions: {
+                        position: google.maps.ControlPosition.RIGHT_TOP
+                    }
                 };
                 map = new google.maps.Map(mapElt, mapOptions);
 
@@ -54,7 +76,8 @@
                     marker = new google.maps.Marker({
                         map: map,
                         position: latlng,
-                        draggable: markerDraggable
+                        draggable: markerDraggable,
+                        zIndex: 0
                     });
 
                     if (markerDraggable) {
@@ -73,9 +96,15 @@
 
             if (autoCompleteElt) {
                 autoComplete = new google.maps.places.Autocomplete(
-                        autoCompleteElt,
-                        {types: ['geocode']}
+                    autoCompleteElt,
+                    {types: ['geocode']}
                 );
+
+                if (countriesEnabled.length) {
+                    autoComplete.setComponentRestrictions(
+                        {'country': countriesEnabled}
+                    );
+                }
             }
 
 
@@ -119,13 +148,13 @@
                         //Translate geocoding
                         if (typeof translate !== 'undefined' && translate == true) {
                             translateGeocodeResultFunc(formattedResult.lat, formattedResult.lng).done(
-                                    function (resultsTranslated) {
-                                        //console_log("resultsTranslated", resultsTranslated);
-                                        //console_log("formattedResult", formattedResult);
-                                        deferred.resolve(
-                                                $.extend(formattedResult, resultsTranslated)
-                                        );
-                                    }
+                                function (resultsTranslated) {
+//                                        console_log("resultsTranslated", resultsTranslated);
+//                                        console_log("formattedResult", formattedResult);
+                                    deferred.resolve(
+                                        $.extend(formattedResult, resultsTranslated)
+                                    );
+                                }
                             );
                         } else {
                             deferred.resolve(formattedResult);
@@ -160,11 +189,11 @@
 
                             //Translate geocoding
                             translateGeocodeResultFunc(formattedResult.lat, formattedResult.lng).done(
-                                    function (resultsTranslated) {
-                                        deferred.resolve(
-                                                $.extend(formattedResult, resultsTranslated)
-                                        );
-                                    }
+                                function (resultsTranslated) {
+                                    deferred.resolve(
+                                        $.extend(formattedResult, resultsTranslated)
+                                    );
+                                }
                             );
                         } else {
                             deferred.reject("{{ 'geo.location.no_result'|trans }}");
@@ -229,30 +258,35 @@
                 if (lang != locale) {
                     dataT[lang] = {};
                     var deferred = new $.Deferred();
+                    var url = "{{ path('cocorico_geo_reverse_geocoding', {'lat': '0.01', 'lng': '0.02', 'lang': app.request.locale}) }}";
+                    url = url.replace('0.01', lat);
+                    url = url.replace('0.02', lng);
+                    url = url.replace('{{ app.request.locale }}', lang);
+                    url += "?token={{ csrf_token("rev_geo") }}";
                     $.getJSON(
-                            "//maps.googleapis.com/maps/api/geocode/json?latlng=" + lat + "," + lng + "&sensor=false&language=" + lang,
-                            function (queryResult) {
+                        url,
+                        function (queryResult) {
 
-                                if (queryResult.status == 'OK' && queryResult.results.length) {
-                                    var resultsT = queryResult.results;
-                                    var resultT = resultsT[0];
+                            if (queryResult.status == 'OK' && queryResult.results.length) {
+                                var resultsT = queryResult.results;
+                                var resultT = resultsT[0];
 
-                                    $.each(resultT.address_components, function (index, objectT) {
-                                        if (objectT) {
-                                            $.each(objectT.types, function (index, name) {
-                                                dataT[lang][name] = objectT.long_name;
-                                                dataT[lang][name + "_short"] = objectT.short_name;
-                                            });
-                                        }
-                                    });
-                                    deferred.resolve(dataT);
-                                } else {
-                                    //datasT[lang]=null;
-                                    {#deferred.reject("{{ 'geo.location.no_result'|trans }}");#}
-                                }
-                            }).fail(function () {
+                                $.each(resultT.address_components, function (index, objectT) {
+                                    if (objectT) {
+                                        $.each(objectT.types, function (index, name) {
+                                            dataT[lang][name] = objectT.long_name;
+                                            dataT[lang][name + "_short"] = objectT.short_name;
+                                        });
+                                    }
+                                });
+                                deferred.resolve(dataT);
+                            } else {
+                                //datasT[lang]=null;
+                                {#deferred.reject("{{ 'geo.location.no_result'|trans }}");#}
+                            }
+                        }).fail(function () {
 
-                            });
+                    });
                     promises.push(deferred);
                 }
             });
@@ -290,14 +324,15 @@
                         sw = viewport.getSouthWest();
                     }
 
-
-                    map.fitBounds(viewport);
-                    //fitbounds happens asynchronously, so we have to wait for a bounds_changed event before setting zoom works.
-                    google.maps.event.addListenerOnce(map, 'bounds_changed', function (event) {
+                    if (!mapDragMode) {
+                        map.fitBounds(viewport);
+                        //fit bounds happens asynchronously, so we have to wait for a bounds_changed event before setting zoom works.
+                        google.maps.event.addListenerOnce(map, 'bounds_changed', function (event) {
 //                        console_log('bounds_changed' + getBoundsZoomLevel(ne, sw, mapElt));
-                        this.setZoom(getBoundsZoomLevel(ne, sw, mapElt));
-                    });
-
+                            this.setZoom(getBoundsZoomLevel(ne, sw, mapElt));
+//                            addNeSwMarkers();
+                        });
+                    }
                     drawZone(ne, sw);
 
                     if (displayMarker) {
@@ -305,14 +340,40 @@
                         marker.setPosition(location);
                         marker.setVisible(true);
                     }
-
-
                 } else {
                     //Try to get viewport through map api json
                     refreshMapJSONFunc($(autoCompleteElt).val());
                 }
             }
         };
+
+        /**
+         * Add markers to viewport coordinates
+         */
+        function addNeSwMarkers() {
+            var currentMapViewport = map.getBounds();
+
+            var ne2 = currentMapViewport.getNorthEast();
+            latlng = new google.maps.LatLng(ne2.lat(), ne2.lng());
+
+            var markerA = new google.maps.Marker({
+                map: map,
+                position: latlng,
+                draggable: false,
+                zIndex: 0
+            });
+            markerA.setVisible(true);
+
+            var sw2 = currentMapViewport.getSouthWest();
+            latlng = new google.maps.LatLng(sw2.lat(), sw2.lng());
+            var markerB = new google.maps.Marker({
+                map: map,
+                position: latlng,
+                draggable: false,
+                zIndex: 0
+            });
+            markerB.setVisible(true);
+        }
 
 
         /**
@@ -396,14 +457,15 @@
          */
         refreshMapJSONFunc = function (address) {
             $.when(
-                    geocodeJSONFunc(address)
+                geocodeJSONFunc(address)
             ).then(
-                    function (results) {
-                        if (results) {
-                            var result = results[0];
-                            var geometry = result.geometry;
+                function (results) {
+                    if (results) {
+                        var result = results[0];
+                        var geometry = result.geometry;
 
-                            if (geometry.viewport) {
+                        if (geometry.viewport) {
+                            if (!mapDragMode) {
                                 var ne = geometry.viewport.northeast;
                                 var sw = geometry.viewport.southwest;
                                 ne = new google.maps.LatLng(ne.lat, ne.lng);
@@ -413,17 +475,18 @@
                                 map.fitBounds(viewport);
                                 map.setZoom(getBoundsZoomLevel(ne, sw, mapElt));
                                 drawZone(ne, sw);
-                            } else {
-                                map.setCenter(geometry.location);
-                                map.setZoom(17);
                             }
-                            if (displayMarker) {
-                                marker.setPosition(geometry.location);
-                                marker.setVisible(true);
-                            }
-
+                        } else {
+                            map.setCenter(geometry.location);
+                            map.setZoom(17);
                         }
+                        if (displayMarker) {
+                            marker.setPosition(geometry.location);
+                            marker.setVisible(true);
+                        }
+
                     }
+                }
             );
         };
 
@@ -435,97 +498,302 @@
         geocodeJSONFunc = function (address) {
             var deferred = new $.Deferred();
             $.getJSON(
-                    "//maps.googleapis.com/maps/api/geocode/json?address=" + address + "&sensor=false&language=" + "{{ app.request.locale }}",
-                    function (queryResult) {
-                        if (queryResult.status == 'OK' && queryResult.results.length) {
-                            deferred.resolve(queryResult.results);
-                        } else {
-                            deferred.reject(false);
-                        }
-                    });
+                "//maps.googleapis.com/maps/api/geocode/json?address=" + address + "&sensor=false&language=" + "{{ app.request.locale }}{{ gKey|raw }}",
+                function (queryResult) {
+                    if (queryResult.status == 'OK' && queryResult.results.length) {
+                        deferred.resolve(queryResult.results);
+                    } else {
+                        deferred.reject(false);
+                    }
+                });
             return deferred.promise();
         };
 
 
         /**
-         * Set markers on map
+         * Set markers on map.
          *
-         * @param locations
+         * @param markersGroupedByLocation associative array. First dimension is the lat-lng and can contain multiple listings
+         * with same locations
+         *      Ex :
+         *      markersGroupedByLocation["12.789-0.4589"]=> array(
+         *          0 => array(
+         *                  'title' => 'Title Marker',
+         *                  'price' => '1000',
+         *                  ...
+         *                  ),
+         *          1 => array(
+         *                  'title' => 'Other Title Marker',
+         *                  'price' => '200',
+         *                  ...
+         *                  ),
+         *         ...
+         *      )
          */
-        setMarkersFunc = function (locations) {
-            var markerTemplate = document.getElementById('popup1').innerHTML;
+        {# markersGroupedByLocation are setted in Cocorico/CoreBundle/Controller/Frontend/ListingSearchController.php#}
+        setMarkersFunc = function (markersGroupedByLocation) {
+            {#Get infobox html template @see Cocorico/CoreBundle/Resources/views/Frontend/ListingResult/_marker.html.twig#}
+            var markerTemplate = $('.info-box-tpl').find('ul').html();
 
             var image = {
                 url: '/images/pin.png',
-                size: new google.maps.Size(20, 32),
-                origin: new google.maps.Point(0, 0),
-                anchor: new google.maps.Point(0, 32)
+                size: new google.maps.Size(20, 32)
             };
-            var markers = [];
 
-            $.each(locations, function (i, location) {
+            //Compute InfoBox Y Offset and height
+            var infoBoxHeight = 270;
+            var infoBoxWidth = 275;
+            var offsetY = -infoBoxHeight - 54;
+
+            //Remove markers before adding them
+            $.each(markers, function (index, marker) {
+                marker.setMap(null);
+                google.maps.event.clearListeners(marker, 'click');
+            });
+            markers = {};
+
+            //Construct InfoBox for each marker with different location
+            $.each(markersGroupedByLocation, function (cptMarker, markersForOneLocation) {//cptMarker is of form lat-lng
+                var markerData = getMarkerData(markersForOneLocation);
+                var nbMarkersWithSameLocation = markerData["nbMarkersWithSameLocation"];
+                var listingsIdWithSameLocation = markerData["listingsIdWithSameLocation"];
+                var infoBoxContent = markerData["infoBoxContent"];
+
+                var $popupElt = $(infoBoxContent);
+                $popupElt.find("[data-id=info-box]").css("height", infoBoxHeight + "px");
+
                 //Marker
-                var myLatLng = new google.maps.LatLng(location['lat'], location['lng']);
-                var markerIB = new google.maps.Marker({
+                var firstMarker = markersForOneLocation[0];
+                var myLatLng = new google.maps.LatLng(firstMarker['lat'], firstMarker['lng']);
+                var marker = new MarkerWithLabel({
                     icon: image,
                     position: myLatLng,
-                    zIndex: i + 1,
-                    map: map
+                    zIndex: firstMarker['zindex'],
+                    opacity: firstMarker['opacity'],
+                    animation: google.maps.Animation.DROP,
+                    map: map,
+                    labelContent: nbMarkersWithSameLocation.toString(),
+                    labelAnchor: new google.maps.Point(7, 28),//to change if marker icon change
+                    labelClass: "map-label"
                 });
 
-
                 //InfoBox
-                var infoBoxContent = markerTemplate.replace('%title%', location['title']);
-                infoBoxContent = infoBoxContent.replace('/images/img.png', location['image']);
-                infoBoxContent = infoBoxContent.replace('%price%', location['price']);
-                infoBoxContent = infoBoxContent.replace('%certified%', location['certified']);
-                infoBoxContent = infoBoxContent.replace('%url%', location['url']);
-                infoBoxContent = infoBoxContent.replace('%category%', location['category']);
-                infoBoxContent = infoBoxContent.replace('%rating1%', location['rating1']);
-                infoBoxContent = infoBoxContent.replace('%rating2%', location['rating2']);
-                infoBoxContent = infoBoxContent.replace('%rating3%', location['rating3']);
-                infoBoxContent = infoBoxContent.replace('%rating4%', location['rating4']);
-                infoBoxContent = infoBoxContent.replace('%rating5%', location['rating5']);
-
-//                var popupElt = document.getElementById('popup1');
-//                popupElt.innerHTML = infoBoxContent;
-
-                var popupElt = document.createElement("div");
-                popupElt.setAttribute("class", "popup");
-                popupElt.innerHTML = infoBoxContent;
-
-                //console_log(document.getElementById('popup1').innerHTML);
-                markerIB.infobox = new InfoBox({
-                    content: popupElt,
+                marker.infobox = new InfoBox({
+                    content: $popupElt[0],//DOM element
                     disableAutoPan: false,
-                    maxWidth: 150,
-                    pixelOffset: new google.maps.Size(-140, 0),
+                    maxWidth: infoBoxWidth,
+                    pixelOffset: new google.maps.Size(-Math.round(infoBoxWidth / 2), offsetY),
                     zIndex: null,
                     boxStyle: {
-                        width: "280px"
+                        width: infoBoxWidth + "px"
                     },
                     closeBoxURL: "",
                     infoBoxClearance: new google.maps.Size(1, 1)
                 });
+                markers[cptMarker] = marker;
 
-                popupElt.onclick = function () {
-                    markerIB.infobox.close();
-                };
+                ////////EVENTS///////
+                //Close InfoBox
+                $popupElt.find('.close').on('click', function (e) {
+                    e.preventDefault();
+                    marker.infobox.close();
+                    return false;
+                });
 
-                markers.push(markerIB);
-
-                google.maps.event.addListener(markerIB, 'click', (function (markerIB, i) {
+                //Open InfoBox on marker click
+                google.maps.event.addListener(marker, 'click', (function (cptMarker, nbMarkersWithSameLocation) {
                     return function () {
-                        for (var h = 0; h < markers.length; h++) {
-                            markers[h].infobox.close();
+                        //Close all info box
+                        for (var m in markers) {
+                            if (markers.hasOwnProperty(m)) {
+                                markers[m].infobox.close();
+                            }
                         }
 
-                        markers[i].infobox.open(map, this);
-                        map.panTo(myLatLng);
+                        //Open info box for current marker
+                        markers[cptMarker].infobox.open(map, this);
+
+                        //Add slider and pan map
+                        setTimeout(function () {
+                            //Load images on marker click
+                            var $infoBoxImages = $popupElt.find(".img-holder img");
+                            $.each($infoBoxImages, function (i, infoBoxImage) {
+                                $(infoBoxImage).attr("src", $(infoBoxImage).data("src"));
+                            });
+
+                            addSlider(nbMarkersWithSameLocation);
+                            map.panTo(myLatLng);
+                            map.panBy(0, Math.round(offsetY / 2));
+                        }, 5);
                     }
-                })(markerIB, i));
+                })(cptMarker, nbMarkersWithSameLocation));
+
+                //Overlay corresponding marker or cluster on listing mouseover
+                $.each(listingsIdWithSameLocation, function (i, listingId) {
+                    $("[data-lid=" + listingId + "]").on('mouseenter mouseleave', function (e) {
+                        try {
+                            if (e.type == 'mouseenter') {
+                                marker.labelClass = "map-label-overlay";
+                                if (marker.cluster) {//setted in clusteringend event below
+                                    marker.cluster.clusterIcon_.div_.className = 'cluster cluster-overlay';
+                                }
+                            } else {
+                                marker.labelClass = "map-label";
+                                if (marker.cluster) {
+                                    marker.cluster.clusterIcon_.div_.className = 'cluster';
+                                }
+                            }
+                            marker.label.draw();
+                        } catch (e) {
+                            //todo: know why projection is null
+                        }
+                    });
+                });
+
+            });//end loop of info boxes construction
+
+            /**
+             * Extend map to fit bounds on visible markers if we are not in map dragging mode
+             */
+            google.maps.event.addListenerOnce(map, 'idle', function () {
+                if (!mapDragMode) {
+                    var viewport = this.getBounds();
+                    var fitBounds = false;
+                    for (var m in markers) {
+                        if (markers.hasOwnProperty(m)) {
+                            if (!viewport.contains(markers[m].getPosition())) {
+                                viewport = viewport.extend(markers[m].getPosition());
+                                fitBounds = true;
+                            }
+                        }
+                    }
+                    if (fitBounds) {
+                        map.fitBounds(viewport);
+                    }
+                }
+
+                mapIsLoaded = true;//Map has been loaded .
             });
-        };
+
+            /**
+             * Generate info box content for each marker
+             * Some markers can have same locations. In this case info box marker are rendered as slider
+             *
+             */
+            function getMarkerData(markersForOneLocation) {
+                var infoBoxContent = '';
+                var nbMarkersWithSameLocation = 0;
+                var listingsIdWithSameLocation = [];
+
+                $.each(markersForOneLocation, function (i, marker) {
+                    var tmpContent = markerTemplate.replace('%title%', marker['title']);
+                    tmpContent = tmpContent.replace('%data-src%', marker['image']);
+                    tmpContent = tmpContent.replace('%price%', marker['price']);
+                    tmpContent = tmpContent.replace('%certified%', marker['certified']);
+                    tmpContent = tmpContent.replace('%url%', marker['url']);
+                    tmpContent = tmpContent.replace('%category%', marker['category']);
+                    tmpContent = tmpContent.replace('%rating1%', marker['rating1']);
+                    tmpContent = tmpContent.replace('%rating2%', marker['rating2']);
+                    tmpContent = tmpContent.replace('%rating3%', marker['rating3']);
+                    tmpContent = tmpContent.replace('%rating4%', marker['rating4']);
+                    tmpContent = tmpContent.replace('%rating5%', marker['rating5']);
+
+                    infoBoxContent = infoBoxContent + tmpContent;
+                    nbMarkersWithSameLocation++;
+                    listingsIdWithSameLocation.push(marker['id']);
+                });
+                {#Inject html into infobox wrapper @see Cocorico/CoreBundle/Resources/views/Frontend/ListingResult/_marker.html.twig#}
+                infoBoxContent = $('.info-box-wrapper').html().replace('%info_box_content%', infoBoxContent);
+
+                return {
+                    "infoBoxContent": infoBoxContent,
+                    "nbMarkersWithSameLocation": nbMarkersWithSameLocation,
+                    "listingsIdWithSameLocation": listingsIdWithSameLocation
+                };
+            }
+
+
+            function addSlider(nbMarkersWithSameLocation) {
+                var options = {
+                    infinite: true,
+                    arrows: false
+                };
+
+                if (nbMarkersWithSameLocation > 1) {
+                    options = {
+                        infinite: true,
+                        arrows: true
+                    };
+                }
+                $(".infoBox .popup").unslider(options);
+            }
+
+            //Cluster
+            //Remove cluster markers before adding them
+            if (typeof markerCluster != 'undefined') {
+                markerCluster.clearMarkers();
+                markerCluster.repaint();
+            }
+            markerCluster = new MarkerClusterer(map, markers, {
+                maxZoom: 15,
+                gridSize: 30,
+                styles: null,
+                zoomOnClick: false,
+                calculator: function (markers, numStyles) {
+                    var index = 0;
+                    var title = "";
+                    var count = 0;
+                    //Compute the number of markers in cluster including markers with same location
+                    for (var marker in markers) {
+                        if (markers.hasOwnProperty(marker)) {
+                            count += parseInt(markers[marker].labelContent);
+                        }
+                    }
+                    count = count.toString();
+
+                    var dv = count;
+                    while (dv !== 0) {
+                        dv = parseInt(dv / 10, 10);
+                        index++;
+                    }
+
+                    index = Math.min(index, numStyles);
+                    return {
+                        text: count,
+                        index: index,
+                        title: title
+                    };
+                }
+            });
+
+            //Override cluster click
+            google.maps.event.addListener(markerCluster, 'click', function (cluster) {
+                var mc = cluster.getMarkerClusterer();
+                // Zoom into the cluster.
+                var mz = mc.getMaxZoom();
+                var theBounds = cluster.getBounds();
+                mc.getMap().fitBounds(theBounds);
+                // There is a fix for Issue 170 here:
+                setTimeout(function () {
+                    mc.getMap().fitBounds(theBounds);
+                    // Don't zoom beyond the max zoom level
+                    if (mz !== null && (mc.getMap().getZoom() > mz)) {
+                        mc.getMap().setZoom(mz + 1);
+                    }
+                }, 100);
+            });
+
+            //Associate each marker to its cluster to manage cluster overlay effect on listing mouseover
+            google.maps.event.clearListeners(markerCluster, 'clusteringend');
+            google.maps.event.addListener(markerCluster, 'clusteringend', function (e) {
+                var clusters = this.getClusters();
+                for (var i = 0; i < clusters.length; i++) {
+                    for (var j = 0; j < clusters[i].markers_.length; j++) {
+                        clusters[i].markers_[j].cluster = clusters[i];
+                    }
+                }
+            });
+        };//end setMarkersFunc
 
         /**
          * Geo localisation by ip through IPInfoDB
@@ -537,7 +805,6 @@
             if (ipInfoDbAPIKey) {
                 var countries = $.parseJSON('{{ countries_translated(app.request.locale)|json_encode()|e('js') }}');
                 var url = "//api.ipinfodb.com/v3/ip-city/?key=" + ipInfoDbAPIKey + "&format=json";
-                //var url = "//freegeoip.net/json/"; //too lagged
 
                 try {
                     var geoCookie = Cookies.get('_cgl');
@@ -546,8 +813,8 @@
                             url: url,
                             cache: true,
                             async: true,
-                            jsonp: "callback",// Name of the callback parameter
-                            dataType: "jsonp",// Tell jQuery we're expecting JSONP
+//                            jsonp: "callback",// Name of the callback parameter. Commented for security reasons
+                            dataType: "json",// Tell jQuery we're expecting JSON and no more JSONP for security reasons
                             success: function (location) {
                                 if (location.statusCode == 'OK') {
                                     location.countryName = countries[location.countryCode];//country name translated
@@ -603,7 +870,7 @@
             var latZoom = zoom(mapDim.height, WORLD_DIM.height, latFraction);
             var lngZoom = zoom(mapDim.width, WORLD_DIM.width, lngFraction);
 
-            //console_log('getBoundsZoomLevel > return', Math.min(latZoom, lngZoom, ZOOM_MAX));
+//            console_log('getBoundsZoomLevel > return', Math.min(latZoom, lngZoom, ZOOM_MAX));
 
             return Math.min(latZoom, lngZoom, ZOOM_MAX);
         }

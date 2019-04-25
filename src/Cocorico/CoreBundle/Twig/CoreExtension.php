@@ -14,23 +14,26 @@ namespace Cocorico\CoreBundle\Twig;
 
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\CoreBundle\Entity\Listing;
-use Cocorico\CoreBundle\Helper\GlobalHelper;
+use Cocorico\CoreBundle\Utils\PHP;
 use Lexik\Bundle\CurrencyBundle\Twig\Extension\CurrencyExtension;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\Intl\Intl;
 use Symfony\Component\Translation\TranslatorInterface;
 
-class CoreExtension extends \Twig_Extension
+class CoreExtension extends \Twig_Extension implements \Twig_Extension_GlobalsInterface
 {
     protected $currencyExtension;
     protected $translator;
+    protected $session;
     protected $locales;
     protected $timeUnit;
     protected $timeUnitIsDay;
+    protected $timeZone;
     protected $daysDisplayMode;
     protected $timesDisplayMode;
     protected $timeUnitFlexibility;
     protected $timeUnitAllDay;
+    protected $timeHoursAvailable;
     protected $allowSingleDay;
     protected $endDayIncluded;
     protected $listingDefaultStatus;
@@ -43,12 +46,11 @@ class CoreExtension extends \Twig_Extension
     protected $feeAsOfferer;
     protected $feeAsAsker;
     protected $displayMarker;
-    protected $session;
     protected $bookingExpirationDelay;
+    protected $bookingAcceptationDelay;
     protected $bookingValidationMoment;
     protected $bookingValidationDelay;
     protected $bookingPriceMin;
-    protected $globalHelper;
     protected $vatRate;
     protected $includeVat;
     protected $displayVat;
@@ -56,127 +58,83 @@ class CoreExtension extends \Twig_Extension
     protected $listingDuplication;
     protected $minStartDelay;
     protected $minStartTimeDelay;
+    protected $addressDelivery;
 
     /**
      *
      * @param CurrencyExtension   $currencyExtension
      * @param TranslatorInterface $translator
-     * @param array               $locales
-     * @param int                 $timeUnit                App unit time in minutes
-     * @param boolean             $timeUnitFlexibility
-     * @param boolean             $timeUnitAllDay
-     * @param string              $daysDisplayMode
-     * @param string              $timesDisplayMode
-     * @param boolean             $allowSingleDay
-     * @param boolean             $endDayIncluded
-     * @param int                 $listingDefaultStatus
-     * @param int                 $listingPricePrecision
-     * @param array               $currencies
-     * @param string              $defaultCurrency
-     * @param string              $priceMin
-     * @param string              $priceMax
-     * @param float               $feeAsOfferer
-     * @param float               $feeAsAsker
-     * @param boolean             $displayMarker
      * @param Session             $session
-     * @param int                 $bookingExpirationDelay  Delay to expire a new booking in minute
-     * @param string              $bookingValidationMoment Moment when the booking is validated (start or end)
-     * @param int                 $bookingValidationDelay  Delay in minutes after or before $bookingValidationMoment
-     * @param int                 $bookingPriceMin
-     * @param GlobalHelper        $globalHelper
-     * @param float               $vatRate
-     * @param bool                $includeVat
-     * @param bool                $displayVat
-     * @param int                 $listingSearchMinResult
-     * @param bool                $listingDuplication
-     * @param int                 $minStartDelay
-     * @param int                 $minStartTimeDelay
+     * @param array               $parameters
      *
      */
 
     public function __construct(
         $currencyExtension,
-        $translator,
-        $locales,
-        //time unit
-        $timeUnit,
-        $timeUnitFlexibility,
-        $timeUnitAllDay,
-        $daysDisplayMode,
-        $timesDisplayMode,
-        $allowSingleDay,
-        $endDayIncluded,
-        $listingDefaultStatus,
-        $listingPricePrecision,
-        //Currencies
-        $currencies,
-        $defaultCurrency,
-        //Prices
-        $priceMin,
-        $priceMax,
-        $feeAsOfferer,
-        $feeAsAsker,
-        $displayMarker,
+        TranslatorInterface $translator,
         Session $session,
-        //Delay
-        $bookingExpirationDelay,
-        $bookingValidationMoment,
-        $bookingValidationDelay,
-        $bookingPriceMin,
-        GlobalHelper $globalHelper,
-        $vatRate,
-        $includeVat,
-        $displayVat,
-        $listingSearchMinResult,
-        $listingDuplication,
-        $minStartDelay,
-        $minStartTimeDelay
+        array $parameters
     ) {
+        //Services
         $this->currencyExtension = $currencyExtension;
         $this->translator = $translator;
-        $this->locales = $locales;
-        //Time unit
-        $this->timeUnit = $timeUnit;
-        $this->timeUnitIsDay = ($timeUnit % 1440 == 0) ? true : false;
-        $this->timeUnitAllDay = $timeUnitAllDay;
-        $this->daysDisplayMode = $daysDisplayMode;
-        $this->timesDisplayMode = $timesDisplayMode;
-        $this->timeUnitFlexibility = $timeUnitFlexibility;
-
-        $this->allowSingleDay = $allowSingleDay;
-        $this->endDayIncluded = $endDayIncluded;
-
-        $this->listingDefaultStatus = $listingDefaultStatus;
-        $this->listingPricePrecision = $listingPricePrecision;
-
-        //Currencies
-        $this->currencies = $currencies;
-        $this->defaultCurrency = $defaultCurrency;
-        $this->currentCurrency = $session->get('currency', $defaultCurrency);
-
-        //Prices
-        $this->priceMin = $priceMin;
-        $this->priceMax = $priceMax;
-        $this->feeAsOfferer = $feeAsOfferer;
-        $this->feeAsAsker = $feeAsAsker;
-
-        $this->displayMarker = $displayMarker;
         $this->session = $session;
 
-        //Delay
-        $this->bookingExpirationDelay = $bookingExpirationDelay * 60;//Converted to seconds
-        $this->bookingValidationMoment = $bookingValidationMoment;
-        $this->bookingValidationDelay = $bookingValidationDelay;
-        $this->bookingPriceMin = $bookingPriceMin;
+        $parameters = $parameters['parameters'];
 
-        $this->globalHelper = $globalHelper;
-        $this->vatRate = $vatRate;
-        $this->includeVat = $includeVat;
-        $this->displayVat = $displayVat;
-        $this->listingSearchMinResult = $listingSearchMinResult;
-        $this->listingDuplication = $listingDuplication;
-        $this->minStartDelay = $minStartDelay;
-        $this->minStartTimeDelay = $minStartTimeDelay;
+        $this->locales = $parameters["cocorico_locales"];
+
+        //Time unit
+        $this->timeUnit = $parameters["cocorico_time_unit"];
+        $this->timeUnitIsDay = ($this->timeUnit % 1440 == 0) ? true : false;
+        $this->timeZone = $parameters["cocorico_time_zone"];
+        $this->timeUnitAllDay = $parameters["cocorico_time_unit_allday"];
+        $this->timeUnitFlexibility = $parameters["cocorico_time_unit_flexibility"];
+        $this->daysDisplayMode = $parameters["cocorico_days_display_mode"];
+        $this->timesDisplayMode = $parameters["cocorico_times_display_mode"];
+        $this->timeHoursAvailable = $parameters["cocorico_time_hours_available"];
+
+        //Currencies
+        $this->currencies = $parameters["cocorico_currencies"];
+        $this->defaultCurrency = $parameters["cocorico_currency"];
+        $this->currentCurrency = $session->get('currency', $this->defaultCurrency);
+
+        //Fees
+        $this->feeAsOfferer = $parameters["cocorico_fee_as_offerer"];
+        $this->feeAsAsker = $parameters["cocorico_fee_as_asker"];
+
+        //Status
+        $this->listingDefaultStatus = $parameters["cocorico_listing_availability_status"];
+
+        //Prices
+        $this->listingPricePrecision = $parameters["cocorico_listing_price_precision"];
+        $this->priceMin = $parameters["cocorico_listing_price_min"];
+        $this->priceMax = $parameters["cocorico_listing_price_max"];
+        $this->bookingPriceMin = $parameters["cocorico_booking_price_min"];
+
+        //Map
+        $this->displayMarker = $parameters["cocorico_listing_map_display_marker"];
+
+        $this->listingSearchMinResult = $parameters["cocorico_listing_search_min_result"];
+        $this->listingDuplication = $parameters["cocorico_listing_duplication"];
+
+        $this->allowSingleDay = $parameters["cocorico_booking_allow_single_day"];
+        $this->endDayIncluded = $parameters["cocorico_booking_end_day_included"];
+
+        //Delay
+        $this->bookingExpirationDelay = $parameters["cocorico_booking_expiration_delay"];
+        $this->bookingAcceptationDelay = $parameters["cocorico_booking_acceptation_delay"];
+        $this->bookingValidationMoment = $parameters["cocorico_booking_validated_moment"];
+        $this->bookingValidationDelay = $parameters["cocorico_booking_validated_delay"];
+        $this->minStartDelay = $parameters["cocorico_booking_min_start_delay"];
+        $this->minStartTimeDelay = $parameters["cocorico_booking_min_start_time_delay"];
+
+        //VAT
+        $this->vatRate = $parameters["cocorico_vat"];
+        $this->includeVat = $parameters["cocorico_include_vat"];
+        $this->displayVat = $parameters["cocorico_display_vat"];
+
+        $this->addressDelivery = $parameters["cocorico_user_address_delivery"];
     }
 
     /**
@@ -188,10 +146,10 @@ class CoreExtension extends \Twig_Extension
     {
         return array(
             new \Twig_SimpleFilter('repeat', array($this, 'stringRepeatFilter')),
-            new \Twig_SimpleFilter('format_seconds', array($this, 'formatSecondsFilter')),
             new \Twig_SimpleFilter('add_time_unit_text', array($this, 'addTimeUnitTextFilter')),
             new \Twig_SimpleFilter('ucwords', 'ucwords'),
-            new \Twig_SimpleFilter('format_price', array($this, 'formatPriceFilter'))
+            new \Twig_SimpleFilter('format_price', array($this, 'formatPriceFilter')),
+            new \Twig_SimpleFilter('strip_private_info', array($this, 'stripPrivateInfoFilter')),
         );
     }
 
@@ -203,28 +161,6 @@ class CoreExtension extends \Twig_Extension
     public function stringRepeatFilter($input, $multiplier)
     {
         return str_repeat($input, $multiplier);
-    }
-
-    /**
-     * Format time from seconds to unit
-     *
-     * @param int    $seconds
-     * @param string $format
-     *
-     * @return string
-     */
-    public function formatSecondsFilter($seconds, $format = 'dhm')
-    {
-        $time = $this->globalHelper->secondsToTime($seconds);
-        switch ($format) {
-            case 'h':
-                $result = ($time['d'] * 24) + $time['h'] . "h";
-                break;
-            default:
-                $result = ($time['d'] * 24) + $time['h'] . "h " . $time['m'] . "m";
-        }
-
-        return $result;
     }
 
     /**
@@ -297,6 +233,31 @@ class CoreExtension extends \Twig_Extension
     }
 
     /**
+     * @param string $text
+     * @param array  $typeInfo
+     * @param string $replaceBy Text replacement translated
+     *
+     * @return string
+     */
+    public function stripPrivateInfoFilter(
+        $text,
+        $typeInfo = array("phone", "email", "domain"),
+        $replaceBy = 'default'
+    ) {
+
+        if ($replaceBy == 'default') {
+            $replaceBy = $this->translator->trans(
+                'private_info_replacement',
+                array(),
+                'cocorico'
+            );
+        }
+
+        return PHP::strip_texts($text, $typeInfo, $replaceBy);
+    }
+
+
+    /**
      * @inheritdoc
      *
      * @return array
@@ -312,6 +273,7 @@ class CoreExtension extends \Twig_Extension
             new \Twig_SimpleFunction('currencySymbol', array($this, 'currencySymbolFunction')),
             new \Twig_SimpleFunction('cancellationPolicies', array($this, 'cancellationPoliciesFunction')),
             new \Twig_SimpleFunction('vatInclusionText', array($this, 'vatInclusionText')),
+            new \Twig_SimpleFunction('staticProperty', array($this, 'staticProperty')),
         );
     }
 
@@ -389,6 +351,22 @@ class CoreExtension extends \Twig_Extension
     }
 
     /**
+     * Get static properties values
+     *
+     * @param string $class
+     * @param string $property
+     * @return mixed
+     */
+    public function staticProperty($class, $property)
+    {
+        if (property_exists($class, $property)) {
+            return $class::$$property;
+        }
+
+        return null;
+    }
+
+    /**
      * @inheritdoc
      *
      * @return array
@@ -442,7 +420,9 @@ class CoreExtension extends \Twig_Extension
             'bookingStatusClass' => $bookingStatusClass,
             'timeUnit' => $this->timeUnit,
             'timeUnitIsDay' => $this->timeUnitIsDay,
+            'timeZone' => $this->timeZone,
             'timeUnitAllDay' => $this->timeUnitAllDay,
+            'timeHoursAvailable' => $this->timeHoursAvailable,
             'daysDisplayMode' => $this->daysDisplayMode,
             'timesDisplayMode' => $this->timesDisplayMode,
             'timeUnitFlexibility' => $this->timeUnitFlexibility,
@@ -459,6 +439,7 @@ class CoreExtension extends \Twig_Extension
             'feeAsAsker' => $this->feeAsAsker,
             'displayMarker' => $this->displayMarker,
             'bookingExpirationDelay' => $this->bookingExpirationDelay,
+            'bookingAcceptationDelay' => $this->bookingAcceptationDelay,
             'bookingValidationMoment' => $this->bookingValidationMoment,
             'bookingValidationDelay' => $this->bookingValidationDelay,
             'bookingPriceMin' => $this->bookingPriceMin,
@@ -468,7 +449,8 @@ class CoreExtension extends \Twig_Extension
             'listingSearchMinResult' => $this->listingSearchMinResult,
             'listingDuplication' => $this->listingDuplication,
             'minStartDelay' => $this->minStartDelay,
-            'minStartTimeDelay' => $this->minStartTimeDelay
+            'minStartTimeDelay' => $this->minStartTimeDelay,
+            'addressDelivery' => $this->addressDelivery
         );
     }
 

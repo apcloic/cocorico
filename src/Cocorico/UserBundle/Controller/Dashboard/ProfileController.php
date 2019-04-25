@@ -12,18 +12,13 @@
 
 namespace Cocorico\UserBundle\Controller\Dashboard;
 
-use Cocorico\UserBundle\Entity\UserAddress;
-use Cocorico\UserBundle\Event\UserEvent;
-use Cocorico\UserBundle\Event\UserEvents;
-use Cocorico\UserBundle\Form\Type\ProfileContactFormType;
-use Cocorico\UserBundle\Form\Type\ProfilePaymentFormType;
 use Cocorico\UserBundle\Form\Type\ProfileSwitchFormType;
 use FOS\UserBundle\Model\UserInterface;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Method;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
+use Symfony\Component\Form\Exception\RuntimeException;
 use Symfony\Component\HttpFoundation\Cookie;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
@@ -34,222 +29,6 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
  */
 class ProfileController extends Controller
 {
-
-    /**
-     * Edit user profile
-     *
-     * @Route("/edit-about-me", name="cocorico_user_dashboard_profile_edit_about_me")
-     * @Method({"GET", "POST"})
-     *
-     * @param $request Request
-     *
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
-    public function editAboutMeAction(Request $request)
-    {
-        $user = $this->getUser();
-        if (!is_object($user) || !$user instanceof UserInterface) {
-            throw new AccessDeniedException('This user does not have access to this section.');
-        }
-
-        $form = $this->createEditAboutMeForm($user);
-        $form->handleRequest($request);
-
-        if ($form->isSubmitted() && $form->isValid()) {
-            $this->get("cocorico_user.user_manager")->updateUser($user);
-            $this->container->get('session')->getFlashBag()->add(
-                'success',
-                $this->container->get('translator')->trans('user.edit.about_me.success', array(), 'cocorico_user')
-            );
-
-            $url = $this->generateUrl('cocorico_user_dashboard_profile_edit_about_me');
-
-            return new RedirectResponse($url);
-        }
-
-        return $this->container->get('templating')->renderResponse(
-            'CocoricoUserBundle:Dashboard/Profile:edit_about_me.html.twig',
-            array(
-                'form' => $form->createView(),
-                'user' => $user
-            )
-        );
-
-    }
-
-
-    /**
-     * Creates a form to edit a user entity.
-     *
-     * @param mixed $user
-     *
-     * @return \Symfony\Component\Form\Form The form
-     */
-    private function createEditAboutMeForm($user)
-    {
-        $form = $this->get('form.factory')->createNamed(
-            'user',
-            'user_profile_about_me',
-            $user,
-            array(
-                'method' => 'POST',
-                'action' => $this->generateUrl('cocorico_user_dashboard_profile_edit_about_me'),
-            )
-        );
-
-        return $form;
-    }
-
-
-    /**
-     * Edit user profile
-     *
-     * @Route("/edit-payment", name="cocorico_user_dashboard_profile_edit_payment")
-     * @Method({"GET", "POST"})
-     *
-     * @param $request Request
-     *
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
-    public function editPaymentAction(Request $request)
-    {
-        $user = $this->getUser();
-        if (!is_object($user) || !$user instanceof UserInterface) {
-            throw new AccessDeniedException('This user does not have access to this section.');
-        }
-
-        $form = $this->createEditPaymentForm($user);
-        $success = $this->get('cocorico_user.form.handler.edit_payment')->process($form);
-
-        $session = $this->container->get('session');
-        $translator = $this->container->get('translator');
-
-        if ($success > 0) {
-            $session->getFlashBag()->add(
-                'success',
-                $translator->trans('user.edit.payment.success', array(), 'cocorico_user')
-            );
-
-            return $this->redirect(
-                $this->generateUrl(
-                    'cocorico_user_dashboard_profile_edit_payment'
-                )
-            );
-        } elseif ($success < 0) {
-            $session->getFlashBag()->add(
-                'error',
-                $translator->trans('user.edit.payment.error', array(), 'cocorico_user')
-            );
-        }
-
-        return $this->render(
-            'CocoricoUserBundle:Dashboard/Profile:edit_payment.html.twig',
-            array(
-                'form' => $form->createView(),
-                'user' => $user
-            )
-        );
-    }
-
-    /**
-     * Creates a form to edit a user entity.
-     *
-     * @param mixed $user
-     *
-     * @return \Symfony\Component\Form\Form The form
-     */
-    private function createEditPaymentForm($user)
-    {
-        $form = $this->get('form.factory')->createNamed(
-            'user',
-            new ProfilePaymentFormType(),
-            $user,
-            array(
-                'method' => 'POST',
-                'action' => $this->generateUrl('cocorico_user_dashboard_profile_edit_payment'),
-            )
-        );
-
-        return $form;
-    }
-
-
-    /**
-     * Edit user profile
-     *
-     * @Route("/edit-contact", name="cocorico_user_dashboard_profile_edit_contact")
-     * @Method({"GET", "POST"})
-     *
-     * @param $request Request
-     *
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
-    public function editContactAction(Request $request)
-    {
-        $user = $this->getUser();
-        if (!is_object($user) || !$user instanceof UserInterface) {
-            throw new AccessDeniedException('This user does not have access to this section.');
-        }
-
-        $form = $this->createEditContactForm($user);
-        $form->handleRequest($request);
-
-        if ($form->isSubmitted() && $form->isValid()) {
-            //Eventually change user profile data before update it
-            $event = new UserEvent($user);
-            $this->get('event_dispatcher')->dispatch(UserEvents::USER_PROFILE_UPDATE, $event);
-            $user = $event->getUser();
-
-            $this->get("cocorico_user.user_manager")->updateUser($user);
-
-            $this->container->get('session')->getFlashBag()->add(
-                'success',
-                $this->container->get('translator')->trans('user.edit.contact.success', array(), 'cocorico_user')
-            );
-
-            return $this->redirect(
-                $this->generateUrl(
-                    'cocorico_user_dashboard_profile_edit_contact'
-                )
-            );
-        }
-
-        return $this->render(
-            'CocoricoUserBundle:Dashboard/Profile:edit_contact.html.twig',
-            array(
-                'form' => $form->createView(),
-                'user' => $user
-            )
-        );
-    }
-
-    /**
-     * Creates a form to edit a user entity.
-     *
-     * @param mixed $user
-     *
-     * @return \Symfony\Component\Form\Form The form
-     */
-    private function createEditContactForm($user)
-    {
-        $addresses = $user->getAddresses();
-        if (count($addresses) == 0) {
-            $user->addAddress(new UserAddress());
-        }
-        $form = $this->get('form.factory')->createNamed(
-            'user',
-            new ProfileContactFormType(),
-            $user,
-            array(
-                'method' => 'POST',
-                'action' => $this->generateUrl('cocorico_user_dashboard_profile_edit_contact'),
-            )
-        );
-
-
-        return $form;
-    }
-
     /**
      * Switch profile
      *
@@ -259,6 +38,7 @@ class ProfileController extends Controller
      * @param Request $request
      *
      * @return \Symfony\Component\HttpFoundation\Response
+     * @throws AccessDeniedException|RuntimeException
      */
     public function profileSwitchAction(Request $request)
     {
@@ -283,9 +63,9 @@ class ProfileController extends Controller
         }
 
         $type = $request->getSession()->get('profile', 'asker');
-
-        $em = $this->container->get('doctrine')->getManager();
-        $nbMessages = $em->getRepository('CocoricoMessageBundle:Message')->getNbUnreadMessage($user, $type);
+        $nbMessages = $this->get('doctrine')->getManager()->getRepository(
+            'CocoricoMessageBundle:Message'
+        )->getNbUnreadMessage($user, $type);
 
         return $this->render(
             'CocoricoUserBundle:Dashboard/Profile:profile_switch.html.twig',
@@ -317,7 +97,7 @@ class ProfileController extends Controller
 
         $form = $this->get('form.factory')->createNamed(
             'profileSwitch',
-            new ProfileSwitchFormType(),
+            ProfileSwitchFormType::class,
             array('profile' => $selectedProfile),
             array(
                 'method' => 'POST',

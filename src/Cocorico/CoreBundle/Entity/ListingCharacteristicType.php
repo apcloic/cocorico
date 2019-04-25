@@ -51,7 +51,7 @@ class ListingCharacteristicType
 
     /**
      *
-     * @ORM\OneToMany(targetEntity="ListingCharacteristicValue", mappedBy="listingCharacteristicType", cascade={"persist", "remove"})
+     * @ORM\OneToMany(targetEntity="ListingCharacteristicValue", mappedBy="listingCharacteristicType", cascade={"persist", "remove"}, orphanRemoval=true)
      * @ORM\OrderBy({"position" = "asc"})
      */
     private $listingCharacteristicValues;
@@ -78,13 +78,13 @@ class ListingCharacteristicType
     /**
      * Add characteristic value
      *
-     * @param  \Cocorico\CoreBundle\Entity\ListingCharacteristicValue $listingListingCharacteristicValue
-     * @return ListingCharacteristic
+     * @param  \Cocorico\CoreBundle\Entity\ListingCharacteristicValue $listingCharacteristicValue
+     * @return $this
      */
-    public function addListingCharacteristicValue(ListingCharacteristicValue $listingListingCharacteristicValue)
+    public function addListingCharacteristicValue(ListingCharacteristicValue $listingCharacteristicValue)
     {
-//        $listingListingCharacteristicValue->setListingCharacteristicType($this);
-        $this->listingCharacteristicValues[] = $listingListingCharacteristicValue;
+        $listingCharacteristicValue->setListingCharacteristicType($this);
+        $this->listingCharacteristicValues[] = $listingCharacteristicValue;
 
         return $this;
     }
@@ -92,11 +92,12 @@ class ListingCharacteristicType
     /**
      * Remove characteristic value
      *
-     * @param \Cocorico\CoreBundle\Entity\ListingCharacteristicValue $listingListingCharacteristicValue
+     * @param \Cocorico\CoreBundle\Entity\ListingCharacteristicValue $listingCharacteristicValue
      */
-    public function removeListingCharacteristicValue(ListingCharacteristicValue $listingListingCharacteristicValue)
+    public function removeListingCharacteristicValue(ListingCharacteristicValue $listingCharacteristicValue)
     {
-        $this->listingCharacteristicValues->removeElement($listingListingCharacteristicValue);
+        $this->listingCharacteristicValues->removeElement($listingCharacteristicValue);
+        $listingCharacteristicValue->setListingCharacteristicType(null);
     }
 
     /**
@@ -167,6 +168,6 @@ class ListingCharacteristicType
 
     public function __toString()
     {
-        return $this->name;
+        return (string)$this->name;
     }
 }

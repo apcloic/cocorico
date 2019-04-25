@@ -11,9 +11,11 @@
 
 namespace Cocorico\UserBundle\Form\Type;
 
+use Cocorico\CoreBundle\Form\Type\EntityHiddenType;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\HiddenType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
 
 class UserLanguageType extends AbstractType
 {
@@ -27,7 +29,7 @@ class UserLanguageType extends AbstractType
         $builder
             ->add(
                 'code',
-                'hidden',
+                HiddenType::class,
                 array(
                     /** @Ignore */
                     'label' => false
@@ -35,7 +37,7 @@ class UserLanguageType extends AbstractType
             )
             ->add(
                 'user',
-                'entity_hidden',
+                EntityHiddenType::class,
                 array(
                     'class' => 'Cocorico\UserBundle\Entity\User',
                     /** @Ignore */
@@ -45,14 +47,14 @@ class UserLanguageType extends AbstractType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\UserBundle\Entity\UserLanguage',
-                'intention' => 'user_language',
+                'csrf_token_id' => 'user_language',
                 'translation_domain' => 'cocorico_user',
                 'cascade_validation' => true,
                 /** @Ignore */
@@ -62,9 +64,9 @@ class UserLanguageType extends AbstractType
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'user_language';
     }

@@ -12,219 +12,259 @@
 namespace Cocorico\CoreBundle\Model\Manager;
 
 use Cocorico\CoreBundle\Document\ListingAvailability;
-use Cocorico\CoreBundle\Document\ListingAvailabilityTime;
-use Cocorico\CoreBundle\Model\DateRange;
-use Cocorico\CoreBundle\Model\TimeRange;
 use Cocorico\CoreBundle\Repository\ListingAvailabilityRepository;
-use Doctrine\Common\Collections\ArrayCollection;
+use Cocorico\TimeBundle\Model\DateTimeRange;
+use Cocorico\TimeBundle\Model\TimeRange;
 use Doctrine\ODM\MongoDB\Cursor;
 use Doctrine\ODM\MongoDB\DocumentManager;
-use Doctrine\ORM\Query;
 
 class ListingAvailabilityManager
 {
     protected $dm;
+    protected $timeManager;
     protected $timeUnit;
     protected $timeUnitIsDay;
+    protected $defaultListingStatus;
+    protected $endDayIncluded;
+
 
     /**
-     * @param DocumentManager $dm
-     * @param int             $timeUnit
+     * @param DocumentManager                $dm
+     * @param ListingAvailabilityTimeManager $timeManager
+     * @param int                            $timeUnit
+     * @param bool                           $defaultListingStatus
+     * @param bool                           $endDayIncluded
      */
-    public function __construct(DocumentManager $dm, $timeUnit)
-    {
+    public function __construct(
+        DocumentManager $dm,
+        ListingAvailabilityTimeManager $timeManager,
+        $timeUnit,
+        $defaultListingStatus,
+        $endDayIncluded
+    ) {
         $this->dm = $dm;
+        $this->timeManager = $timeManager;
         $this->timeUnit = $timeUnit;
         $this->timeUnitIsDay = ($timeUnit % 1440 == 0) ? true : false;
+        $this->defaultListingStatus = $defaultListingStatus;
+        $this->endDayIncluded = $endDayIncluded;
     }
 
     /**
      * Save availabilities Status
      *
-     * @param int          $listingId
-     * @param DateRange    $dateRange
-     * @param array        $weekDays
-     * @param TimeRange [] $timeRanges
-     * @param int|null     $status              ListingAvailability::$statusValues
-     * @param int|null     $defaultPrice
-     * @param bool         $endDayIncluded      For bookings it's equal to app endDayIncluded parameter else (status edition)
-     *                                          it's false
-     * @param bool         $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param int           $listingId
+     * @param DateTimeRange $dateTimeRange
+     * @param array         $weekDays
+     * @param int|null      $status              ListingAvailability::$statusValues
+     * @param int|null      $defaultPrice
+     *                                           param bool         $endDayIncluded      For bookings it's equal to app endDayIncluded parameter else (status edition)
+     *                                           it's false
+     * @param bool          $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param string        $timezone
      *
      * @throws \Exception
      */
     public function saveAvailabilitiesStatus(
         $listingId,
-        DateRange $dateRange,
+        DateTimeRange $dateTimeRange,
         array $weekDays,
-        array $timeRanges,
         $status,
         $defaultPrice,
-        $endDayIncluded,
-        $bookingCancellation
+        $bookingCancellation,
+        $timezone = 'UTC'
     ) {
         $this->saveAvailabilities(
             $listingId,
-            $dateRange,
+            $dateTimeRange,
             $weekDays,
-            $timeRanges,
             $status,
             null,
             $defaultPrice,
-            $endDayIncluded,
-            $bookingCancellation
+            $bookingCancellation,
+            $timezone
         );
     }
 
     /**
      * Save availabilities Prices
      *
-     * @param int          $listingId
-     * @param DateRange    $dateRange
-     * @param array        $weekDays
-     * @param TimeRange [] $timeRanges
-     * @param int          $price
-     * @param bool         $endDayIncluded      For bookings it's equal to app endDayIncluded parameter else (status edition)
-     *                                          it's false
-     * @param bool         $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param int           $listingId
+     * @param DateTimeRange $dateTimeRange       ,
+     * @param array         $weekDays
+     * @param int           $price
+     * @param bool          $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param string        $timezone
      *
      * @throws \Exception
      */
     public function saveAvailabilitiesPrices(
         $listingId,
-        DateRange $dateRange,
+        DateTimeRange $dateTimeRange,
         array $weekDays,
-        array $timeRanges,
         $price,
-        $endDayIncluded,
-        $bookingCancellation
+        $bookingCancellation,
+        $timezone = 'UTC'
     ) {
         $this->saveAvailabilities(
             $listingId,
-            $dateRange,
+            $dateTimeRange,
             $weekDays,
-            $timeRanges,
             null,
             $price,
             null,
-            $endDayIncluded,
-            $bookingCancellation
+            $bookingCancellation,
+            $timezone
         );
     }
 
     /**
-     * Save availabilities Status Or Price depending on status or price value
+     * Save availabilities status or price depending on status or price value
      *
-     * @param int          $listingId
-     * @param DateRange    $dateRange
-     * @param array        $weekDays
-     * @param TimeRange [] $timeRanges
-     * @param int|null     $status              ListingAvailability::$statusValues
-     * @param int|null     $price
-     * @param int|null     $defaultPrice
-     * @param bool         $endDayIncluded      For bookings it's equal to app endDayIncluded parameter else (status edition)
-     *                                          it's false
-     * @param bool         $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param int           $listingId
+     * @param DateTimeRange $dateTimeRange
+     * @param array         $weekDays
+     * @param int|null      $status              ListingAvailability::$statusValues
+     * @param int|null      $price
+     * @param int|null      $defaultPrice
+     * @param bool          $bookingCancellation Booked status can be only modified when booking is canceled
+     * @param string        $timezone
      *
      * @throws \Exception
      */
     public function saveAvailabilities(
         $listingId,
-        DateRange $dateRange,
+        DateTimeRange $dateTimeRange,
         array $weekDays,
+        $status,
+        $price,
+        $defaultPrice = null,
+        $bookingCancellation,
+        $timezone = 'UTC'
+    ) {
+
+        $daysTimeRanges = $dateTimeRange->getDaysTimeRanges($this->endDayIncluded, $weekDays, $timezone);
+
+//        print_r($daysTimeRanges);
+//        die();
+
+        foreach ($daysTimeRanges as $dayTimeRanges) {
+            $this->saveAvailability(
+                $listingId,
+                $dayTimeRanges->day,
+                $dayTimeRanges->timeRanges,
+                $status,
+                $price,
+                $defaultPrice,
+                $bookingCancellation
+            );
+        }
+    }
+
+    /**
+     * Save availability status or price depending on status or price value
+     *
+     * @param int       $listingId
+     * @param \DateTime $day
+     * @param array     $timeRanges
+     * @param int       $status
+     * @param int       $price
+     * @param int|null  $defaultPrice
+     * @param bool      $bookingCancellation
+     */
+    private function saveAvailability(
+        $listingId,
+        \DateTime $day,
         array $timeRanges,
         $status,
         $price,
         $defaultPrice = null,
-        $endDayIncluded,
         $bookingCancellation
     ) {
-        $typeModification = $status ? "status" : "price";
+        $collection = $this->dm->getDocumentCollection('CocoricoCoreBundle:ListingAvailability');
+        $typeModification = $status ? 'status' : 'price';
 
-        $start = clone $dateRange->getStart();
-        $end = clone $dateRange->getEnd();
-        if ($endDayIncluded) {
-            $end->modify('+1 day');
-        }
+        //Is day in weekdays
+        $availability = $this->getAvailability($listingId, $day);
 
-        $interval = new \DateInterval('P1D');
-        $days = new \DatePeriod($start, $interval, $end);
-
-        /** @var \DateTime[] $days */
-        foreach ($days as $i => $day) {
-            //Is day in weekdays
-            if (!count($weekDays) || in_array($day->format('N'), $weekDays)) {
-                $dayP1 = new \DateTime($day->format("Y-m-d"));
-                $dayP1->add(new \DateInterval('P1D'));
-
-                //Get availability for this day if exist
-                $existingAvailabilities = $this->getAvailabilitiesByListingAndDateRange(
-                    $listingId,
-                    $day,
-                    $dayP1
-                );
-
-                /** @var ListingAvailability $availability */
-                if ($existingAvailabilities->count()) {
-                    $availability = $existingAvailabilities->getSingleResult();
-                } else {
-                    $availability = new ListingAvailability();
-                    $availability->setListingId($listingId);
-                    $availability->setDay($day);
-                }
-
-                //No modification of booked availability for time unit day mode except when a booking is cancelled
-                if (!$bookingCancellation) {
-                    if ($this->timeUnitIsDay && $availability->getStatus() == ListingAvailability::STATUS_BOOKED) {
-                        continue;
-                    }
-                }
-
-                if ($typeModification == "status") {
-                    $availability = $this->setAvailabilityStatus($availability, $status, $defaultPrice);
-                } elseif ($typeModification == "price") {
-                    $availability = $this->setAvailabilityPrice($availability, $price);
-                } else {
-                    throw new \Exception('Status or Price is required');
-                }
-
-                $times = $this->mergeAvailabilityTimes(
-                    $availability,
-                    $timeRanges,
-                    $typeModification,
-                    $defaultPrice,
-                    $bookingCancellation
-                );
-
-                //No time range means all day
-                if (!count($timeRanges)) {
-                    $availability->setTimes(new ArrayCollection(array()));
-                } else {
-                    $availability->setTimes(new ArrayCollection($times));
-                }
-
-                $this->dm->persist($availability);
-                $this->dm->flush();
+        //No modification of booked availability for time unit day mode except when a booking is cancelled
+        if (!$bookingCancellation) {
+            if ($this->timeUnitIsDay && $availability["s"] == ListingAvailability::STATUS_BOOKED) {
+                return;
             }
         }
 
+        if ($typeModification == 'status') {
+            $availability = $this->setAvailabilityStatus($availability, $status, $defaultPrice);
+        } else {
+            $availability = $this->setAvailabilityPrice($availability, $price);
+        }
 
+        $times = $this->timeManager->mergeAvailabilityTimes(
+            $availability,
+            $timeRanges,
+            $typeModification,
+            $defaultPrice,
+            $bookingCancellation
+        );
+
+        //No time range means all day
+        if (!count($timeRanges)) {
+            $availability['ts'] = array();
+        } else {
+            $availability['ts'] = $times;
+        }
+
+        $collection->save($availability);
+    }
+
+    /**
+     * Get availability by listingId and day
+     *
+     * @param int       $listingId
+     * @param \DateTime $day
+     *
+     * @return array
+     */
+    private function getAvailability($listingId, $day)
+    {
+        $dayP1 = new \DateTime($day->format('Y-m-d'));
+        $dayP1->add(new \DateInterval('P1D'));
+
+        //Get availability for this day if exist
+        $existingAvailability = $this->getAvailabilitiesByListingAndDateRange(
+            $listingId,
+            $day,
+            $dayP1
+        );
+
+        /** @var array $availability */
+        if ($existingAvailability->count()) {
+            $availability = $existingAvailability->getSingleResult();
+        } else {
+            $availability = array();
+            $availability['lId'] = $listingId;
+            $availability['d'] = new \MongoDate($day->getTimestamp());
+            $availability['s'] = null;
+        }
+
+        return $availability;
     }
 
     /**
      * Set availabilities Status
      *
-     * @param ListingAvailability $availability
-     * @param int                 $status
-     * @param int                 $defaultPrice
+     * @param     $availability
+     * @param int $status
+     * @param int $defaultPrice
      *
-     * @return ListingAvailability
+     * @return array
      */
     public function setAvailabilityStatus($availability, $status, $defaultPrice)
     {
-        $availability->setStatus($status);
-        if (!$availability->getId()) {
-            $availability->setPrice($defaultPrice);
+        $availability['s'] = $status;
+        if (!isset($availability['_id']) || !$availability['_id']) {
+            $availability['p'] = intval($defaultPrice);
         }
 
         return $availability;
@@ -233,182 +273,19 @@ class ListingAvailabilityManager
     /**
      * Set availabilities Price
      *
-     * @param ListingAvailability $availability
-     * @param int                 $price
+     * @param     $availability
+     * @param int $price
      *
-     * @return ListingAvailability
+     * @return array
      */
     public function setAvailabilityPrice($availability, $price)
     {
-        $availability->setPrice($price);
-        if (!$availability->getId()) {
-            $availability->setStatus(ListingAvailability::STATUS_AVAILABLE);
+        $availability['p'] = intval($price);
+        if (!isset($availability['_id']) || !$availability['_id']) {
+            $availability['s'] = ListingAvailability::STATUS_AVAILABLE;
         }
 
         return $availability;
-    }
-
-
-    /**
-     * Merge existing and new times. The result will replace all existing embedded ListingAvailabilityTime embed documents
-     * for this day and this listing.
-     *
-     * @param ListingAvailability    $availability
-     * @param TimeRange []           $timeRanges
-     * @param string  (price|status) $typeModification
-     * @param int                    $defaultPrice
-     * @param bool                   $bookingCancellation
-     *
-     * @return ListingAvailabilityTime[]
-     */
-    public function mergeAvailabilityTimes(
-        ListingAvailability $availability,
-        array $timeRanges,
-        $typeModification,
-        $defaultPrice,
-        $bookingCancellation
-    ) {
-        /** @var ListingAvailabilityTime[] $times */
-        $times = array();
-        foreach ($availability->getTimes() as $l => $existingTime) {
-            $times[intval($existingTime->getId())] = $existingTime;
-        }
-
-        //Get new times
-        $status = $availability->getStatus();
-        $price = $availability->getPrice();
-        foreach ($timeRanges as $j => $timeRange) {
-            /** @var \DateTime $startTime H:i */
-            $startTime = $timeRange->getStart();
-            $endTime = $timeRange->getEnd();
-
-            //The start minute number
-            $startMinute = intval($startTime->getTimestamp() / 60);
-            $endMinute = intval($endTime->getTimestamp() / 60);
-//            $nbMinutes = intval(($endTime->getTimestamp() - $startTime->getTimestamp()) / 60);
-//            $nbMinutes += $startMinute;
-
-            //Replace existing minutes with new ones and add new ones if they don't exist
-            for ($k = $startMinute; $k < $endMinute; $k++) {
-                if (isset($times[$k])) {
-                    $time = $times[$k];
-                } else {
-                    $time = new ListingAvailabilityTime();
-                }
-
-                if ($typeModification == "status") {
-                    $time = $this->setAvailabilityTimeStatus($time, $status, $defaultPrice, $bookingCancellation);
-                } else {
-                    $time = $this->setAvailabilityTimePrice($time, $price);
-                }
-                //For new time
-                $time->setId($k);
-
-                $times[$k] = $time;
-            }
-        }
-//        die();
-        ksort($times);
-
-        return $times;
-    }
-
-    /**
-     * Set availabilities Status
-     *
-     * @param ListingAvailabilityTime $availabilityTime
-     * @param int                     $status
-     * @param int                     $defaultPrice
-     * @param bool                    $bookingCancellation
-     *
-     * @return ListingAvailabilityTime
-     */
-    public function setAvailabilityTimeStatus($availabilityTime, $status, $defaultPrice, $bookingCancellation)
-    {
-        //Status modification allowed only when listing availability time is not booked or when a booking is cancelled
-        if ($availabilityTime->getStatus() != ListingAvailabilityTime::STATUS_BOOKED || $bookingCancellation) {
-            $availabilityTime->setStatus($status);
-        }
-
-        if (!$availabilityTime->getId() && $availabilityTime->getId() !== 0) {
-            $availabilityTime->setPrice($defaultPrice);
-        }
-
-        return $availabilityTime;
-    }
-
-    /**
-     * Set availabilities Price
-     *
-     * @param ListingAvailabilityTime $availabilityTime
-     * @param int                     $price
-     *
-     * @return ListingAvailabilityTime
-     */
-    public function setAvailabilityTimePrice($availabilityTime, $price)
-    {
-        //Price modification allowed only when listing is not booked
-        if ($availabilityTime->getStatus() != ListingAvailabilityTime::STATUS_BOOKED) {
-            $availabilityTime->setPrice($price);
-        }
-
-        if (!$availabilityTime->getId() && $availabilityTime->getId() !== 0) {
-            $availabilityTime->setStatus(ListingAvailability::STATUS_AVAILABLE);
-        }
-
-        return $availabilityTime;
-    }
-
-    /**
-     * Save availability times for one availability
-     *
-     * @param ListingAvailability    $availability
-     * @param                        $startTime
-     * @param                        $endTime
-     * @param string  (price|status) $typeModification
-     * @param int                    $defaultPrice
-     */
-
-    public function saveAvailabilityTimes(
-        ListingAvailability $availability,
-        $startTime,
-        $endTime,
-        $typeModification,
-        $defaultPrice = null
-    ) {
-        $timeRange = array();
-        if (!$this->timeUnitIsDay) {
-            $start = new \DateTime('01-01-1970 ' . $startTime);
-            $end = new \DateTime('01-01-1970 ' . $endTime);
-            $end->add(new \DateInterval('PT1M'));
-
-            $timeRange = array(0 => new TimeRange($start, $end));
-        }
-
-        $times = $this->mergeAvailabilityTimes(
-            $availability,
-            $timeRange,
-            $typeModification,
-            $defaultPrice,
-            false
-        );
-
-        $availability->setTimes(new ArrayCollection($times));
-
-        $this->dm->persist($availability);
-        $this->dm->flush();
-    }
-
-    /**
-     * Save availability
-     *
-     * @param ListingAvailability $availability
-     *
-     */
-    public function saveAvailability(ListingAvailability $availability)
-    {
-        $this->dm->persist($availability);
-        $this->dm->flush();
     }
 
 
@@ -418,7 +295,6 @@ class ListingAvailabilityManager
      * @param int       $listingId
      * @param \DateTime $start
      * @param \DateTime $end
-     * @param string    $format calendar
      * @param boolean   $endDayIncluded
      *
      * @return array|Cursor|ListingAvailability[]
@@ -427,145 +303,253 @@ class ListingAvailabilityManager
         $listingId,
         \DateTime $start,
         \DateTime $end,
-        $format = "",
         $endDayIncluded = false
     ) {
-        $events = array();
-        /** @var ListingAvailability[] $availabilities */
-        $availabilities = $this->getRepository()->getAvailabilitiesByListingAndDateRange(
+        return $this->getRepository()->findAvailabilitiesByListing(
+            $listingId,
+            $start,
+            $end,
+            $endDayIncluded,
+            false
+        );
+    }
+
+
+    /**
+     * @param int       $listingId
+     * @param \DateTime $start
+     * @param \DateTime $end
+     * @param bool      $endDayIncluded
+     * @param string    $timezone
+     * @return array
+     */
+    public function getCalendarEvents(
+        $listingId,
+        \DateTime $start,
+        \DateTime $end,
+        $endDayIncluded = false,
+        $timezone
+    ) {
+        $availabilities = $this->getAvailabilitiesByListingAndDateRange(
             $listingId,
             $start,
             $end,
             $endDayIncluded
         );
 
-        switch ($format) {
-            case 'calendar' :
-                foreach ($availabilities as $availability) {
-                    $events = array_merge($events, $this->asCalendarEvent($availability));
-                }
-                break;
-            default:
-                $events = $availabilities;
-                break;
+        return $this->asCalendarEvents($availabilities, $timezone);
+    }
+
+
+    /**
+     * @param int       $listingId
+     * @param \DateTime $start
+     * @param \DateTime $end
+     * @param bool      $endDayIncluded
+     * @return array
+     */
+    public function getAvailabilitiesStatus(
+        $listingId,
+        \DateTime $start,
+        \DateTime $end,
+        $endDayIncluded = false
+    ) {
+        $status = array();
+        $availabilities = $this->getAvailabilitiesByListingAndDateRange(
+            $listingId,
+            $start,
+            $end,
+            $endDayIncluded
+        );
+
+        foreach ($availabilities as $availability) {
+            $status = $status + $this->asStatus($availability);
         }
 
+        return $status;
+    }
+
+    /**
+     * Get ListingAvailability as status raw
+     *
+     * @param array $availability
+     *
+     * @return array
+     *  If time unit is day : $events[$day] = status
+     *  else $events[$day][$minute] = status
+     */
+    public function asStatus($availability)
+    {
+        /** @var \MongoDate $dayMD */
+        $dayMD = $availability['d'];
+        $day = new \DateTime();
+        $day->setTimestamp($dayMD->sec);
+        $day = $day->format('Ymd');
+
+        $timesRanges = $this->timeManager->getTimesRanges($availability, 1, false);
+        $events = array();
+
+        if (count($timesRanges)) {
+            //Fill default listing status for all minutes of the day
+            $events[$day] = array_fill_keys(array_keys(range(0, 1439)), $this->defaultListingStatus);
+
+            //Replace minutes status by existing availability status
+            foreach ($timesRanges as $i => $timeRange) {
+                for ($m = $timeRange['start']; $m < $timeRange['end']; $m++) {
+                    $events[$day][$m] = $timeRange['status'];
+                }
+            }
+        } else {
+            $events[$day] = $availability['s'];
+        }
 
         return $events;
     }
 
     /**
-     * Get ListingAvailability as calendar event
-     * Id of event is equal to the concatenation of $this->getId() and start time
+     * Return all availabilities data organized by time range
      *
-     * @param ListingAvailability $listingAvailability
-     *
+     * @param array  $availabilities
+     * @param string $timezone
      * @return array
      */
-    public function asCalendarEvent(ListingAvailability $listingAvailability)
+    public function asCalendarEvents($availabilities, $timezone)
     {
-        $day = $listingAvailability->getDay()->format("Y-m-d");
-        $timesRanges = $this->getTimesRanges($listingAvailability);
-        $events = array();
+        $daysEvents = array();
+        foreach ($availabilities as $availability) {
+            $events = $this->asCalendarDayEvents($availability, $timezone);
+//            print_r($events);
+            $daysEvents = array_merge_recursive($daysEvents, $events);
+        }
 
-//        print_r($timesRanges);
-        if (count($timesRanges)) {
-            foreach ($timesRanges as $i => $timeRange) {
-                $events[] = array(
-                    'id' => $listingAvailability->getId() . str_replace(":", "", $timeRange['start']),
-                    'title' => $timeRange['price'] / 100,
-//                  'description' => "",
-                    /** @Ignore */
-                    'className' => "cal-" . str_replace(
-                            "entity.listing_availability.status.",
-                            "",
-                            ListingAvailabilityTime::$statusValues[$timeRange['status']]
-                        ) . "-evt",
-                    'start' => $day . " " . $timeRange['start'],
-                    'end' => $day . " " . $timeRange['end'],
+        $allDay = $this->timeUnitIsDay ? true : false;
+        $result = array();
+        foreach ($daysEvents as $dayEvents) {
+            $prevEvent = null;
+            foreach ($dayEvents as $i => $event) {
+                $status = ListingAvailability::$statusValues[$event['status']];
+                /** @Ignore */
+                $status = str_replace('entity.listing_availability.status.', '', $status);
+
+                //If current start event is equal to previous end and event time and price are equals then events are merged
+                if ($prevEvent && $event['start'] == $prevEvent['end']) {
+                    if ($prevEvent['price'] == $event['price'] && $prevEvent['status'] == $event['status']) {
+                        array_splice($result, count($result) - 1, 1);
+                        $event['start'] = $prevEvent['start'];
+                    }
+                }
+                $prevEvent = $event;
+
+                //Get start and end in UTC
+                $startUTC = new \DateTime($event['start'], new \DateTimeZone($timezone));
+                $startUTC->setTimezone(new \DateTimeZone('UTC'));
+                $endUTC = new \DateTime($event['end'], new \DateTimeZone($timezone));
+                $endUTC->setTimezone(new \DateTimeZone('UTC'));
+
+                $result[] = array(
+                    'id' => $event['id'],
+                    'title' => $event['price'] / 100,
+                    'className' => 'cal-' . $status . '-evt',
+                    'start' => $event['start'],
+                    'end' => $event['end'],
+                    'startUTC' => $startUTC->format('Y-m-d H:i'),
+                    'endUTC' => $endUTC->format('Y-m-d H:i'),
                     'editable' => true,
-                    'allDay' => false
+                    'allDay' => $allDay
                 );
             }
-        } else {
-            $allDay = false;
-            if ($this->timeUnitIsDay) {
-                $allDay = true;
+        }
+
+//        print_r($result);
+        return $result;
+    }
+
+    /**
+     * Return availability data organized by time range for availability day
+     *
+     * @param array  $availability
+     * @param string $timezone
+     * @return array
+     */
+    private function asCalendarDayEvents($availability, $timezone)
+    {
+        /** @var \MongoDate $dayMD */
+        $dayMD = $availability['d'];
+        $day = new \DateTime();
+        $day->setTimestamp($dayMD->sec);
+        $dayAsString = $dayEndAsString = $day->format('Y-m-d');//by default day is the same for an event
+
+        $nextDay = clone $day;//if end time is 00:00 the day will be the next one
+        $nextDay->add(new \DateInterval('P1D'));
+        $nextDayAsString = $nextDay->format('Y-m-d');
+
+        //time ranges array in UTC
+        $timesRanges = $this->timeManager->getTimesRanges($availability);
+//        print_r($timesRanges);
+
+        $events = array();
+        if (count($timesRanges)) {
+            foreach ($timesRanges as $timeRange) {
+                $dayEndAsString = $dayAsString;
+                if ($timeRange['end'] == '00:00') {
+                    $dayEndAsString = $nextDayAsString;
+                }
+
+                $startUTC = new \DateTime($dayAsString . ' ' . $timeRange['start']);
+                $endUTC = new \DateTime($dayEndAsString . ' ' . $timeRange['end']);
+
+//                echo $startUTC->format('Y-m-d H:i') . ' / ' . $endUTC->format('Y-m-d H:i') . '<br>';
+
+                $start = clone $startUTC;
+                $end = clone $endUTC;
+                $start->setTimezone(new \DateTimeZone($timezone));
+                $end->setTimezone(new \DateTimeZone($timezone));
+
+//                echo $start->format('Y-m-d H:i') . ' / ' . $end->format('Y-m-d H:i') . '<br>';
+
+                //If time range span days then it is splitted from start to midnight and midnight to end
+                /** @var TimeRange[] $subTimeRanges */
+                $subTimeRanges = array(new TimeRange($start, $end, $start));
+                if ($start->format('Y-m-d') != $end->format('Y-m-d')) {
+                    $midnight = clone $end;
+                    $midnight->setTime(0, 0, 0);
+
+                    $subTimeRanges = array(
+                        new TimeRange($start, $midnight, $start),
+                        new TimeRange($midnight, $end, $midnight),
+                    );
+                }
+
+                foreach ($subTimeRanges as $index => $subTimeRange) {
+                    $subStart = $subTimeRange->getStart();
+                    $subEnd = $subTimeRange->getEnd();
+                    if ($subStart->format('Y-m-d H:i') != $subEnd->format('Y-m-d H:i')) {
+
+                        $events[$subStart->format('Y-m-d')][] = array(
+                            'id' => $availability['_id'] . str_replace(':', '', $subStart->format('H:i')),
+                            'start' => $subStart->format('Y-m-d H:i'),
+                            'end' => $subEnd->format('Y-m-d H:i'),
+                            'status' => $timeRange['status'],
+                            'price' => $timeRange['price'],
+                        );
+                    }
+                }
             }
-            $events[] = array(
-                'id' => $listingAvailability->getId() . "0000",
-                'title' => $listingAvailability->getPriceDecimal(),
-//              'description' => "",
-                /** @Ignore */
-                'className' => "cal-" . str_replace(
-                        "entity.listing_availability.status.",
-                        "",
-                        $listingAvailability->getStatusText()
-                    ) . "-evt",
-                'start' => $day . " " . "00:00",
-                'end' => $day . " " . "23:59",
-                'editable' => true,
-                'allDay' => $allDay,
+        } else {
+            $start = new \DateTime($dayAsString . ' ' . '00:00');
+            $end = new \DateTime($dayAsString . ' ' . '23:59');
+
+            $events[$start->format('Y-m-d')][] = array(
+                'id' => $availability['_id'] . '0000',
+                'start' => $start->format('Y-m-d H:i'),
+                'end' => $end->format('Y-m-d H:i'),
+                'status' => $availability['s'],
+                'price' => $availability['p'],
             );
         }
 
         return $events;
     }
-
-
-    /**
-     * Construct time ranges from ListingAvailabilityTimes
-     *
-     * @param ListingAvailability $listingAvailability
-     * @param int                 $addOneMinuteToEndTime 1 or 0
-     *
-     * @return array
-     */
-    public function getTimesRanges(ListingAvailability $listingAvailability, $addOneMinuteToEndTime = 1)
-    {
-        $times = $listingAvailability->getTimes();
-        $timesRanges = $range = array();
-        $prevStatus = $prevId = $prevPrice = false;
-
-        foreach ($times as $i => $time) {
-            if ($time->getStatus() !== $prevStatus || $time->getId() != ($prevId + 1) || $time->getPrice(
-                ) !== $prevPrice
-            ) {
-                if ($prevStatus !== false && $prevId !== false) {
-                    $range['end'] = date('H:i', mktime(0, $prevId + $addOneMinuteToEndTime));
-                    $timesRanges[] = $range;
-                    //$range = array();
-                }
-
-                $range = array(
-                    'start' => date('H:i', mktime(0, $time->getId())),
-                    'status' => $time->getStatus(),
-                    'price' => $time->getPrice()
-                );
-            }
-
-            $prevStatus = $time->getStatus();
-            $prevPrice = $time->getPrice();
-            $prevId = $time->getId();
-        }
-
-        if ($times->count()) {
-            $range['end'] = date('H:i', mktime(0, $times->last()->getId() + $addOneMinuteToEndTime));
-            $timesRanges[] = $range;
-        }
-
-        return $timesRanges;
-    }
-
-
-    /**
-     * @return bool
-     */
-    public function getTimeUnitIsDay()
-    {
-        return $this->timeUnitIsDay;
-    }
-
 
     /**
      * Duplicate listing availabilities
@@ -582,12 +566,62 @@ class ListingAvailabilityManager
         $end = $end->add(new \DateInterval('P' . $daysMaxEdition . 'D'));
 
         $availabilities = $this->getAvailabilitiesByListingAndDateRange($listingId, $start, $end);
+        $newAvailabilities = array();
         foreach ($availabilities as $availability) {
-            $availabilityCloned = clone $availability;
-            $availabilityCloned->setListingId($duplicatedListingId);
-            $this->dm->persist($availabilityCloned);
-            $this->dm->flush();
+            unset($availability["_id"]);
+            $availability["lId"] = $duplicatedListingId;
+            $newAvailabilities[] = $availability;
         }
+        if (count($newAvailabilities)) {
+            $this->dm->getDocumentCollection('CocoricoCoreBundle:ListingAvailability')->batchInsert($newAvailabilities);
+        }
+    }
+
+    /**
+     * Convert ListingAvailability object to array. Waiting 2.8 to use object normaliser
+     *
+     * @param ListingAvailability $availability
+     * @return array
+     */
+    public function listingAvailabilityToArray(ListingAvailability $availability)
+    {
+        //convert object to array
+        $availabilityAsArray = array(
+            '_id' => new \MongoId($availability->getId()),
+            'lId' => $availability->getListingId(),
+            'd' => new \MongoDate($availability->getDay()->getTimestamp()),
+            's' => $availability->getStatus(),
+            'p' => intval($availability->getPrice()),
+        );
+
+        $times = array();
+        foreach ($availability->getTimes() as $i => $time) {
+            $times[] = array(
+                '_id' => $time->getId(),
+                's' => $time->getStatus(),
+                'p' => intval($time->getPrice()),
+            );
+        }
+        $availabilityAsArray['ts'] = $times;
+
+        return $availabilityAsArray;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getTimeUnitIsDay()
+    {
+        return $this->timeUnitIsDay;
+    }
+
+    /**
+     *
+     * @return ListingAvailabilityTimeManager
+     */
+    public function getTimeManager()
+    {
+        return $this->timeManager;
     }
 
     /**
@@ -597,6 +631,19 @@ class ListingAvailabilityManager
     public function getRepository()
     {
         return $this->dm->getRepository('CocoricoCoreBundle:ListingAvailability');
+    }
+
+
+    /**
+     * Save availability
+     *
+     * @param ListingAvailability $availability
+     *
+     */
+    public function save(ListingAvailability $availability)
+    {
+        $this->dm->persist($availability);
+        $this->dm->flush();
     }
 
 }

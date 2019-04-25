@@ -7,9 +7,6 @@
 
 {% set amount_total = amount_total | format_price(app.request.locale, 2) %}
 
-{% set booking_can_be_edited = (app.user == booking.user and booking.canBeCanceledByAsker) or
-(app.user == booking.listing.user and booking.status == BookingConstants.STATUS_NEW) %}
-
 {% set title =  'booking.modal.accept.title'|trans %}
 {% set action_title =   'booking.modal.action.accept'|trans %}
 {% set amount_label =   'booking.modal.price'|trans %}
@@ -51,7 +48,7 @@
                     <span class="applicant">
                         <strong>
                             <a href="{{ path('cocorico_user_profile_show', {'id' : other_user.id}) }}">
-                                {{ other_user.firstName }}
+                                {{ other_user.name }}
                             </a>
                         </strong>
                     </span>
@@ -59,30 +56,36 @@
                         {{ other_user_rating| cocorico_star_rating }}
                     {% endif %}
                 </div>
+
+                <div>
+                    <strong>{{ 'form.time_zone'|trans({}, 'cocorico_user') }} :</strong>
+                    {{ user_timezone|timezone_name }}
+                </div>
+
                 <ul class="list-inline booking-detail">
-                    <li content="{{ booking.start|date('Y-m-d') }}">
+                    <li>
                         {{ 'booking.show.start:'|trans }}
-                        <time datetime="{{ booking.start|date('Y-m-d') }}">
-                            {{ booking.start|localizeddate('short', 'none', 'fr') }}
+                        <time>
+                            {{ booking.start|localizeddate('short', 'none', 'fr', user_timezone) }}
                         </time>
                     </li>
                     <li>
                         {{ 'booking.show.end:'|trans }}
-                        <time datetime="{{ booking.end|date('Y-m-d') }}">
-                            {{ booking.end|localizeddate('short', 'none', 'fr') }}
+                        <time>
+                            {{ booking.end|localizeddate('short', 'none', 'fr', user_timezone) }}
                         </time>
                     </li>
                     {% if not timeUnitIsDay %}
                         <li>
                             {{ 'booking.show.start_time:'|trans }}
-                            <time datetime="{{ booking.startTime|date('H:i') }}">
-                                {{ booking.startTime|date('H:i') }}
+                            <time>
+                                {{ booking.startTime|localizeddate('none', 'short', 'fr', user_timezone) }}
                             </time>
                         </li>
                         <li>
                             {{ 'booking.show.end_time:'|trans }}
-                            <time datetime="{{ booking.endTime|date('H:i') }}">
-                                {{ booking.endTime|date('H:i') }}
+                            <time>
+                                {{ booking.endTime|localizeddate('none', 'short', 'fr', user_timezone) }}
                             </time>
                         </li>
                     {% endif %}
@@ -108,6 +111,13 @@
                     </strong>
                 </div>
 
+                {% if bundleExist('CocoricoListingDepositBundle') %}
+                    {% include 'CocoricoListingDepositBundle:Dashboard:Booking/_show_amount_deposit.html.twig' with {
+                        'booking': booking
+                    } only %}
+                    <br/>
+                {% endif %}
+
                 {{ 'listing.show.cancellation_policy:'|trans({}, 'cocorico_listing') }}
                 <strong data-id="booking-policy">{{ booking.cancellationPolicyText|trans({}, 'cocorico_listing') }}</strong>
                 <button data-html="true" data-placement="right" data-toggle="tooltip" class="tooltip-button"
@@ -116,36 +126,37 @@
             </div>
         </div>
 
-        {% if (booking_can_be_edited) %}
+        {% if booking_can_be_edited %}
             {#{{ form_errors(form) }}#}
-            <form id="booking-edit-form" action="{{ form.vars.action }}" method="{{ form.vars.method }}"
-                  class="form-message" {{ form_enctype(form) }}>
-                <fieldset>
-                    <legend class="hidden">message form</legend>
-                    <div class="no-scroll">
-                        {{ form_errors(form.message) }}
-                        {{ form_widget(form.message) }}
-                    </div>
-                    <div class="agree">
-                        {{ form_errors(form.tac) }}
-                        {{ form_widget(form.tac) }}
-                        <span class="label">
-                            {{ form_label(form.tac, null, {'required': false} ) }}
-                            <a href="{{ path('cocorico_page_show', { 'slug': 'nav.tac.slug'|trans }) }}"
-                               target="_blank">
-                                {{ 'booking.new.tac.link'|trans }}
-                            </a>*
-                        </span>
-                    </div>
-                    <input type="submit" class="hidden">
-                    {{ form_rest(form) }}
-                </fieldset>
-            </form>
+            {{ form_start(form, {'attr': {'id': 'booking-edit-form', 'class': 'form-message'}}) }}
+
+            <fieldset>
+                <legend class="hidden">message form</legend>
+                <div class="no-scroll">
+                    {{ form_errors(form.message) }}
+                    {{ form_widget(form.message) }}
+                </div>
+                <div class="agree">
+                    {{ form_errors(form.tac) }}
+                    {{ form_widget(form.tac) }}
+                    <span class="label">
+                        {{ form_label(form.tac, null, {'required': false} ) }}
+                        <a href="{{ path('cocorico_page_show', { 'slug': 'nav.tac.slug'|trans }) }}" target="_blank">
+                            {{ 'booking.new.tac.link'|trans }}
+                        </a>*
+                    </span>
+                </div>
+                <input type="submit" class="hidden">
+            </fieldset>
+            {{ form_end(form) }}
 
             <div class="modal-footer">
-                <a id="booking-edit-return" href="#"
-                   class="btn btn-default">{{ 'booking.modal.action.return'|trans }}</a>
-                <a id="booking-edit-submit" href="#" class="btn btn-default">{{ action_title }}</a>
+                <a id="booking-edit-return" href="#" class="btn btn-default">
+                    {{ 'booking.modal.action.return'|trans }}
+                </a>
+                <a id="booking-edit-submit" href="#" class="btn btn-default">
+                    {{ action_title }}
+                </a>
             </div>
         {% endif %}
     </div>

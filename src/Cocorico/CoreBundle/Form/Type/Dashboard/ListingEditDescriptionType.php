@@ -11,10 +11,13 @@
 
 namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
+use A2lix\TranslationFormBundle\Form\Type\TranslationsType;
+use Cocorico\CoreBundle\Form\Type\LanguageFilteredType;
 use JMS\TranslationBundle\Model\Message;
 use JMS\TranslationBundle\Translation\TranslationContainerInterface;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Validator\Constraints\NotBlank;
 
 class ListingEditDescriptionType extends ListingEditType implements TranslationContainerInterface
 {
@@ -32,11 +35,13 @@ class ListingEditDescriptionType extends ListingEditType implements TranslationC
         foreach ($this->locales as $i => $locale) {
             $titles[$locale] = array(
                 /** @Ignore */
-                'label' => "listing.form.title.$locale"
+                'label' => "listing.form.title.$locale",
+                'constraints' => array(new NotBlank())
             );
             $descriptions[$locale] = array(
                 /** @Ignore */
-                'label' => "listing.form.description.$locale"
+                'label' => "listing.form.description.$locale",
+                'constraints' => array(new NotBlank())
             );
             $rules[$locale] = array(
                 /** @Ignore */
@@ -44,46 +49,51 @@ class ListingEditDescriptionType extends ListingEditType implements TranslationC
             );
         }
 
-        $builder->add(
-            'translations',
-            'a2lix_translations',
-            array(
-                'required_locales' => array($this->locale),
-                'fields' => array(
-                    'title' => array(
-                        'field_type' => 'text',
-                        'locale_options' => $titles
+        $builder
+            ->add(
+                'translations',
+                TranslationsType::class,
+                array(
+                    'required_locales' => array($this->locale),
+                    'fields' => array(
+                        'title' => array(
+                            'field_type' => 'text',
+                            'locale_options' => $titles
+                        ),
+                        'description' => array(
+                            'field_type' => 'textarea',
+                            'locale_options' => $descriptions
+                        ),
+                        'rules' => array(
+                            'field_type' => 'textarea',
+                            'locale_options' => $rules
+                        ),
+                        'slug' => array(
+                            'display' => false
+                        )
                     ),
-                    'description' => array(
-                        'field_type' => 'textarea',
-                        'locale_options' => $descriptions
-                    ),
-                    'rules' => array(
-                        'field_type' => 'textarea',
-                        'locale_options' => $rules
-                    ),
-                    'slug' => array(
-                        'field_type' => 'hidden'
-                    )
-                ),
-                /** @Ignore */
-                'label' => false
+                    /** @Ignore */
+                    'label' => false
+                )
             )
-        )
             ->add(
                 'fromLang',
-                'locale_choice',
+                LanguageFilteredType::class,
                 array(
                     'mapped' => false,
-                    'label' => 'cocorico.from'
+                    'label' => 'cocorico.from',
+                    'data' => $this->locale,
+                    'translation_domain' => 'cocorico_user'
                 )
             )
             ->add(
                 'toLang',
-                'locale_choice',
+                LanguageFilteredType::class,
                 array(
                     'mapped' => false,
-                    'label' => 'cocorico.to'
+                    'label' => 'cocorico.to',
+                    'data' => LanguageFilteredType::getLocaleTo($this->locales, $this->locale),
+                    'translation_domain' => 'cocorico_user'
                 )
             );
 
@@ -91,20 +101,21 @@ class ListingEditDescriptionType extends ListingEditType implements TranslationC
         //$builder->remove('status');
     }
 
+
     /**
-     * @return string
+     * @param OptionsResolver $resolver
      */
-    public function getName()
+    public function configureOptions(OptionsResolver $resolver)
     {
-        return 'listing_edit_description';
+        parent::configureOptions($resolver);
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * {@inheritdoc}
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function getBlockPrefix()
     {
-        parent::setDefaultOptions($resolver);
+        return 'listing_edit_description';
     }
 
     /**

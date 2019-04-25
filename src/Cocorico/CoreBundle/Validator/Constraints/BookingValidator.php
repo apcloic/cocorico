@@ -14,25 +14,45 @@ namespace Cocorico\CoreBundle\Validator\Constraints;
 use Cocorico\CoreBundle\Entity\Booking as BookingEntity;
 use Cocorico\CoreBundle\Form\Type\Frontend\BookingNewType;
 use Cocorico\CoreBundle\Model\Manager\BookingManager;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\Intl\Intl;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\ConstraintValidator;
+use Symfony\Component\Validator\Context\ExecutionContextInterface as Context;
+use Symfony\Component\Validator\ExecutionContextInterface;
 
 class BookingValidator extends ConstraintValidator
 {
     private $bookingManager;
+    private $session;
     private $minStartDelay;
     private $minStartTimeDelay;
+    private $currency;
+    private $currencySymbol;
+    private $timezone;
 
     /**
      * @param BookingManager $bookingManager
+     * @param Session        $session
      * @param int            $minStartDelay
      * @param int            $minStartTimeDelay
+     * @param string         $currency
      */
-    public function __construct(BookingManager $bookingManager, $minStartDelay, $minStartTimeDelay)
+    public function __construct(
+        BookingManager $bookingManager,
+        Session $session,
+        $minStartDelay,
+        $minStartTimeDelay,
+        $currency
+    )
     {
         $this->bookingManager = $bookingManager;
+        $this->session = $session;
         $this->minStartDelay = $minStartDelay;
+        $this->timezone = $this->session->get('timezone');
         $this->minStartTimeDelay = $minStartTimeDelay;
+        $this->currency = $currency;
+        $this->currencySymbol = Intl::getCurrencyBundle()->getCurrencySymbol($currency);
     }
 
     /**
@@ -42,34 +62,8 @@ class BookingValidator extends ConstraintValidator
     public function validate($booking, Constraint $constraint)
     {
         if ($booking->getStart() && $booking->getEnd()) {
-
             $violations = $this->getViolations($booking, $constraint);
-
-            if (count($violations)) {
-                foreach ($violations as $violation) {
-                    $message = $violation['message'];
-                    $atPath = isset($violation['atPath']) ? $violation['atPath'] : 'date_range';
-                    $domain = isset($violation['domain']) ? $violation['domain'] : 'cocorico_booking';
-                    $parameter = isset($violation['parameter']) ? $violation['parameter'] : array();
-                    reset($parameter);
-
-                    if ($parameter) {
-                        $this->context->buildViolation($message)
-                            ->atPath($atPath)
-                            ->setParameter(
-                                '{{ ' . key($parameter) . ' }}',
-                                $parameter[key($parameter)]
-                            )
-                            ->setTranslationDomain($domain)
-                            ->addViolation();
-                    } else {
-                        $this->context->buildViolation($message)
-                            ->atPath($atPath)
-                            ->setTranslationDomain($domain)
-                            ->addViolation();
-                    }
-                }
-            }
+            self::buildViolations($this->context, $violations);
         }
     }
 
@@ -82,14 +76,11 @@ class BookingValidator extends ConstraintValidator
     {
         $violations = array();
 
-//        if ($booking->getUser() == $booking->getListing()->getUser()) {
-//            $violations[] = array(
-//                'message' => $constraint::$messageSelfBooking,
-//            );
-//        }
+        $result = $this->bookingManager->checkBookingAndSetAmounts($booking);
+        /** @var BookingEntity $booking */
+        $booking = $result->booking;
+        $errors = $result->errors;
 
-
-        $errors = $this->bookingManager->checkBookingAvailabilityAndSetAmounts($booking);
         //Availability error
         if (in_array('unavailable', $errors)) {
             $violations[] = array(
@@ -106,13 +97,14 @@ class BookingValidator extends ConstraintValidator
 
         //Date Time errors
         if (in_array('date_range.invalid.min_start', $errors)) {
-            $now = new \DateTime();
+            $minStart = new \DateTime();
+            $minStart->setTimezone(new \DateTimeZone($this->timezone));
             if ($this->minStartDelay > 0) {
-                $now->add(new \DateInterval('P' . $this->minStartDelay . 'D'));
+                $minStart->add(new \DateInterval('P' . $this->minStartDelay . 'D'));
             }
             $violations[] = array(
                 'message' => 'date_range.invalid.min_start {{ min_start_day }}',
-                'parameter' => array('min_start_day' => $now->format('d/m/Y')),
+                'parameter' => array('min_start_day' => $minStart->format('d/m/Y')),
                 'domain' => 'cocorico'
             );
         }
@@ -156,13 +148,14 @@ class BookingValidator extends ConstraintValidator
         }
 
         if (in_array('time_range.invalid.min_start', $errors)) {
-            $now = new \DateTime();
+            $minStart = new \DateTime();
+            $minStart->setTimezone(new \DateTimeZone($this->timezone));
             if ($this->minStartTimeDelay > 0) {
-                $now->add(new \DateInterval('PT' . $this->minStartTimeDelay . 'H'));
+                $minStart->add(new \DateInterval('PT' . $this->minStartTimeDelay . 'M'));
             }
             $violations[] = array(
                 'message' => 'time_range.invalid.min_start {{ min_start_time }}',
-                'parameter' => array('min_start_time' => $now->format('d/m/Y H:i')),
+                'parameter' => array('min_start_time' => $minStart->format('d/m/Y H:i')),
                 'domain' => 'cocorico'
             );
         }
@@ -171,7 +164,9 @@ class BookingValidator extends ConstraintValidator
         if (in_array('amount_invalid', $errors)) {
             $violations[] = array(
                 'message' => $constraint::$messageAmountInvalid,
-                'parameter' => array('min_price' => $this->bookingManager->minPrice / 100),
+                'parameter' => array(
+                    'min_price' => $this->bookingManager->minPrice / 100 . " " . $this->currencySymbol
+                ),
                 'domain' => 'cocorico'
             );
         }
@@ -187,12 +182,65 @@ class BookingValidator extends ConstraintValidator
         if (in_array('amount_voucher_invalid', $errors)) {
             $violations[] = array(
                 'message' => $constraint::$messageAmountInvalid,
-                'parameter' => array('min_price' => $this->bookingManager->minPrice / 100),
+                'parameter' => array(
+                    'min_price' => $this->bookingManager->minPrice / 100 . " " . $this->currencySymbol
+                ),
                 'atPath' => 'codeVoucher',
                 'domain' => 'cocorico'
             );
         }
 
+        //Delivery error
+        if (in_array('delivery_max_invalid', $errors)) {
+            $violations[] = array(
+                'message' => BookingNewType::$messageDeliveryMaxInvalid,
+                'atPath' => 'deliveryAddress',
+            );
+        }
+
+        if (in_array('delivery_invalid', $errors)) {
+            $violations[] = array(
+                'message' => BookingNewType::$messageDeliveryInvalid,
+                'atPath' => 'deliveryAddress',
+            );
+        }
+
         return $violations;
+    }
+
+
+    /**
+     * Build violations
+     *
+     * @param Context|ExecutionContextInterface $context
+     * @param array $violations
+     */
+    public static function buildViolations($context, $violations)
+    {
+        if (count($violations)) {
+            foreach ($violations as $violation) {
+                $message = $violation['message'];
+                $atPath = isset($violation['atPath']) ? $violation['atPath'] : 'date_range';
+                $domain = isset($violation['domain']) ? $violation['domain'] : 'cocorico_booking';
+                $parameters = isset($violation['parameter']) ? $violation['parameter'] : array();
+                reset($parameters);
+                foreach ($parameters as $key => $value) {
+                    $parameters['{{ ' . $key . ' }}'] = $value;
+                }
+
+                if ($parameters) {
+                    $context->buildViolation($message)
+                        ->atPath($atPath)
+                        ->setParameters($parameters)
+                        ->setTranslationDomain($domain)
+                        ->addViolation();
+                } else {
+                    $context->buildViolation($message)
+                        ->atPath($atPath)
+                        ->setTranslationDomain($domain)
+                        ->addViolation();
+                }
+            }
+        }
     }
 }

@@ -13,44 +13,57 @@ namespace Cocorico\CoreBundle\Form\Handler\Frontend;
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\CoreBundle\Entity\Listing;
 use Cocorico\CoreBundle\Model\Manager\ListingManager;
-use Cocorico\UserBundle\Form\Handler\RegistrationFormHandler;
+use Cocorico\UserBundle\Entity\User;
 use Symfony\Component\Form\Form;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
+use Symfony\Component\Security\Core\Authorization\AuthorizationChecker;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
 /**
  * Handle Listing Form
- *
  */
 class ListingFormHandler
 {
     protected $request;
     protected $listingManager;
-    protected $registrationHandler;
-
+    /** @var User|null */
+    private $user = null;
 
     /**
-     * @param RequestStack            $requestStack
-     * @param ListingManager          $listingManager
-     * @param RegistrationFormHandler $registrationHandler
+     * ListingFormHandler constructor.
+     * @param TokenStorage         $securityTokenStorage
+     * @param AuthorizationChecker $securityAuthChecker
+     * @param RequestStack         $requestStack
+     * @param ListingManager       $listingManager
+     * @throws \Symfony\Component\Security\Core\Exception\AuthenticationCredentialsNotFoundException
      */
     public function __construct(
+        TokenStorage $securityTokenStorage,
+        AuthorizationChecker $securityAuthChecker,
         RequestStack $requestStack,
-        ListingManager $listingManager,
-        RegistrationFormHandler $registrationHandler
+        ListingManager $listingManager
     ) {
+        if ($securityAuthChecker->isGranted('IS_AUTHENTICATED_FULLY')) {
+            $this->user = $securityTokenStorage->getToken()->getUser();
+        }
         $this->request = $requestStack->getCurrentRequest();
         $this->listingManager = $listingManager;
-        $this->registrationHandler = $registrationHandler;
+
     }
 
 
     /**
      * @return Listing
+     * @throws AccessDeniedException
      */
     public function init()
     {
+        //todo: move to ListingManager->initListing() see BookingManager->initBooking
         $listing = new Listing();
-        $this->addImages($listing);
+        $listing->setUser($this->user);
+        $listing = $this->addImages($listing);
+        $listing = $this->addCategories($listing);
 
         return $listing;
     }
@@ -61,6 +74,7 @@ class ListingFormHandler
      * @param Form $form
      *
      * @return Booking|string
+     * @throws \Symfony\Component\Form\Exception\RuntimeException
      */
     public function process($form)
     {
@@ -75,21 +89,13 @@ class ListingFormHandler
 
     /**
      * @param Form $form
-     * @return boolean
+     * @return bool
+     * @throws \Symfony\Component\Form\Exception\RuntimeException
      */
     private function onSuccess(Form $form)
     {
         /** @var Listing $listing */
         $listing = $form->getData();
-
-        //Login is done in BookingNewType form
-        if ($this->request->request->get('_username') || $this->request->request->get('_password')) {
-        } //Register : Authentication and Welcome email after registration
-        elseif ($form->has('user') && $form->get('user')->has("email")) {
-            $user = $listing->getUser();
-            $this->registrationHandler->handleRegistration($user);
-        }
-
         $this->listingManager->save($listing);
 
         return true;
@@ -98,6 +104,7 @@ class ListingFormHandler
 
     /**
      * @param  Listing $listing
+     * @throws AccessDeniedException
      * @return Listing
      */
     private function addImages(Listing $listing)
@@ -111,6 +118,30 @@ class ListingFormHandler
             $listing = $this->listingManager->addImages(
                 $listing,
                 $imagesUploadedArray
+            );
+        }
+
+        return $listing;
+    }
+
+    /**
+     * Add selected categories and corresponding fields values from post parameters while listing deposit
+     *
+     * @param  Listing $listing
+     * @return Listing
+     */
+    public function addCategories(Listing $listing)
+    {
+        $categories = $this->request->request->get("listing_categories");
+
+        $listingCategories = isset($categories["listingListingCategories"]) ? $categories["listingListingCategories"] : array();
+        $listingCategoriesValues = isset($categories["categoriesFieldsSearchableValuesOrderedByGroup"]) ? $categories["categoriesFieldsSearchableValuesOrderedByGroup"] : array();
+
+        if ($categories) {
+            $listing = $this->listingManager->addCategories(
+                $listing,
+                $listingCategories,
+                $listingCategoriesValues
             );
         }
 

@@ -11,18 +11,18 @@
 
 namespace Cocorico\CoreBundle\Form\Type\Dashboard;
 
-use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Form\Type\EntityHiddenType;
 use Cocorico\CoreBundle\Model\Manager\ListingManager;
-use Cocorico\UserBundle\Entity\User;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
-use Symfony\Component\OptionsResolver\OptionsResolverInterface;
-use Symfony\Component\Security\Core\SecurityContext;
+use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
+use Symfony\Component\Validator\Constraints\Valid;
 
 class ListingEditType extends AbstractType
 {
-    protected $securityContext;
+    protected $securityTokenStorage;
     protected $request;
     protected $locale;
     protected $locales;
@@ -31,20 +31,20 @@ class ListingEditType extends AbstractType
     protected $timeUnitIsDay;
 
     /**
-     * @param SecurityContext $securityContext
-     * @param RequestStack    $requestStack
-     * @param array           $locales
-     * @param ListingManager  $lem
-     * @param int             $timeUnit
+     * @param TokenStorage   $securityTokenStorage
+     * @param RequestStack   $requestStack
+     * @param array          $locales
+     * @param ListingManager $lem
+     * @param int            $timeUnit
      */
     public function __construct(
-        SecurityContext $securityContext,
+        TokenStorage $securityTokenStorage,
         RequestStack $requestStack,
         $locales,
         ListingManager $lem,
         $timeUnit
     ) {
-        $this->securityContext = $securityContext;
+        $this->securityTokenStorage = $securityTokenStorage;
         $this->request = $requestStack->getCurrentRequest();
         $this->locale = $this->request->getLocale();
         $this->locales = $locales;
@@ -62,9 +62,9 @@ class ListingEditType extends AbstractType
         $builder
             ->add(
                 'user',
-                'entity_hidden',
+                EntityHiddenType::class,
                 array(
-                    'data' => $this->securityContext->getToken()->getUser(),
+                    'data' => $this->securityTokenStorage->getToken()->getUser(),
                     'class' => 'Cocorico\UserBundle\Entity\User',
                     'data_class' => null
                 )
@@ -72,27 +72,27 @@ class ListingEditType extends AbstractType
     }
 
     /**
-     * @param OptionsResolverInterface $resolver
+     * @param OptionsResolver $resolver
      */
-    public function setDefaultOptions(OptionsResolverInterface $resolver)
+    public function configureOptions(OptionsResolver $resolver)
     {
+        parent::configureOptions($resolver);
         $resolver->setDefaults(
             array(
                 'data_class' => 'Cocorico\CoreBundle\Entity\Listing',
-                'intention' => 'listing_edit',
+                'csrf_token_id' => 'listing_edit',
                 'translation_domain' => 'cocorico_listing',
-                'cascade_validation' => true,
+                'constraints' => new Valid(),
                 //'validation_groups' => array('Listing'),
             )
         );
     }
 
     /**
-     * @return string
+     * {@inheritdoc}
      */
-    public function getName()
+    public function getBlockPrefix()
     {
         return 'listing_edit';
     }
-
 }

@@ -17,7 +17,6 @@ use Cocorico\MessageBundle\Entity\Thread;
 use Cocorico\UserBundle\Entity\User;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
-use Gedmo\Mapping\Annotation as Gedmo;
 use Knp\DoctrineBehaviors\Model as ORMBehaviors;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -28,6 +27,7 @@ use Symfony\Component\Validator\Constraints as Assert;
  * @ORM\Entity(repositoryClass="Cocorico\CoreBundle\Repository\ListingRepository")
  *
  * @ORM\Table(name="listing",indexes={
+ *    @ORM\Index(name="created_at_l_idx", columns={"createdAt"}),
  *    @ORM\Index(name="status_l_idx", columns={"status"}),
  *    @ORM\Index(name="price_idx", columns={"price"}),
  *    @ORM\Index(name="type_idx", columns={"type"}),
@@ -71,17 +71,10 @@ class Listing extends BaseListing
     private $location;
 
     /**
-     * For Asserts
+     * @ORM\OneToMany(targetEntity="ListingListingCategory", mappedBy="listing", cascade={"persist", "remove"}, orphanRemoval=true)//, fetch="EAGER"
      *
-     * @see \Cocorico\CoreBundle\Validator\Constraints\ListingValidator
-     *
-     * @ORM\ManyToMany(targetEntity="ListingCategory", inversedBy="listings")
-     * @ORM\JoinTable(name="listing_listing_category",
-     *      joinColumns={@ORM\JoinColumn(name="listing_id", referencedColumnName="id", onDelete="CASCADE")},
-     *      inverseJoinColumns={@ORM\JoinColumn(name="listing_category_id", referencedColumnName="id")}
-     * )
-     **/
-    private $categories;
+     */
+    private $listingListingCategories;
 
     /**
      * For Asserts @see \Cocorico\CoreBundle\Validator\Constraints\ListingValidator
@@ -126,9 +119,9 @@ class Listing extends BaseListing
 
     public function __construct()
     {
-        $this->categories = new ArrayCollection();
         $this->images = new ArrayCollection();
         $this->listingListingCharacteristics = new ArrayCollection();
+        $this->listingListingCategories = new ArrayCollection();
         $this->discounts = new ArrayCollection();
         $this->bookings = new ArrayCollection();
         $this->threads = new ArrayCollection();
@@ -239,6 +232,47 @@ class Listing extends BaseListing
         $this->removeListingListingCharacteristic($listingListingCharacteristic);
     }
 
+
+    /**
+     * Add category
+     *
+     * @param  \Cocorico\CoreBundle\Entity\ListingListingCategory $listingListingCategory
+     * @return Listing
+     */
+    public function addListingListingCategory(ListingListingCategory $listingListingCategory)
+    {
+        $listingListingCategory->setListing($this);
+        $this->listingListingCategories[] = $listingListingCategory;
+
+        return $this;
+    }
+
+
+    /**
+     * Remove category
+     *
+     * @param \Cocorico\CoreBundle\Entity\ListingListingCategory $listingListingCategory
+     */
+    public function removeListingListingCategory(ListingListingCategory $listingListingCategory)
+    {
+//        foreach ($listingListingCategory->getValues() as $value) {
+//            $listingListingCategory->removeValue($value);
+//        }
+
+        $this->listingListingCategories->removeElement($listingListingCategory);
+    }
+
+    /**
+     * Get categories
+     *
+     * @return \Doctrine\Common\Collections\Collection|ListingListingCategory[]
+     */
+    public function getListingListingCategories()
+    {
+        return $this->listingListingCategories;
+    }
+
+
     /**
      * Set user
      *
@@ -263,39 +297,6 @@ class Listing extends BaseListing
     }
 
     /**
-     * Add categories
-     *
-     * @param  \Cocorico\CoreBundle\Entity\ListingCategory $category
-     * @return Listing
-     */
-    public function addCategory(ListingCategory $category)
-    {
-        $this->categories[] = $category;
-
-        return $this;
-    }
-
-    /**
-     * Remove categories
-     *
-     * @param \Cocorico\CoreBundle\Entity\ListingCategory $category
-     */
-    public function removeCategory(ListingCategory $category)
-    {
-        $this->categories->removeElement($category);
-    }
-
-    /**
-     * Get categories
-     *
-     * @return \Doctrine\Common\Collections\Collection
-     */
-    public function getCategories()
-    {
-        return $this->categories;
-    }
-
-    /**
      * Add images
      *
      * @param  \Cocorico\CoreBundle\Entity\ListingImage $image
@@ -317,6 +318,7 @@ class Listing extends BaseListing
     public function removeImage(ListingImage $image)
     {
         $this->images->removeElement($image);
+        $image->setListing(null);
     }
 
     /**
@@ -377,6 +379,7 @@ class Listing extends BaseListing
     public function removeDiscount(ListingDiscount $discount)
     {
         $this->discounts->removeElement($discount);
+        $discount->setListing(null);
     }
 
     /**
@@ -402,7 +405,7 @@ class Listing extends BaseListing
     }
 
     /**
-     * @return mixed
+     * @return \Doctrine\Common\Collections\Collection|Booking[]
      */
     public function getBookings()
     {
@@ -534,6 +537,8 @@ class Listing extends BaseListing
         }
 
         $this->options = $options;
+
+        return $this;
     }
 
 
@@ -615,12 +620,12 @@ class Listing extends BaseListing
             }
 
             //Categories
-            /** @var ListingCategory[] $categories */
-            $categories = $this->getCategories();
-            $this->categories = new ArrayCollection();
+            $categories = $this->getListingListingCategories();
+            $this->listingListingCategories = new ArrayCollection();
             foreach ($categories as $category) {
-                $category->addListing($this);
-                $this->addCategory($category);
+                $category = clone $category;
+                $category->setListing($this);
+                $this->addListingListingCategory($category);
             }
 
             //Discounts
@@ -639,5 +644,15 @@ class Listing extends BaseListing
                 }
             }
         }
+    }
+
+    /**
+     * To add impersonating link into admin :
+     *
+     * @return User
+     */
+    public function getImpersonating()
+    {
+        return $this->getUser();
     }
 }

@@ -8,15 +8,19 @@
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
  */
+
 namespace Cocorico\CoreBundle\Form\Handler\Frontend;
 
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\CoreBundle\Entity\Listing;
-use Cocorico\CoreBundle\Model\DateRange;
+use Cocorico\CoreBundle\Event\BookingEvent;
+use Cocorico\CoreBundle\Event\BookingEvents;
+use Cocorico\CoreBundle\Event\BookingFormEvent;
+use Cocorico\CoreBundle\Event\BookingFormEvents;
 use Cocorico\CoreBundle\Model\Manager\BookingManager;
-use Cocorico\CoreBundle\Model\TimeRange;
+use Cocorico\TimeBundle\Model\DateTimeRange;
 use Cocorico\UserBundle\Entity\User;
-use Cocorico\UserBundle\Form\Handler\RegistrationFormHandler;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Form\Form;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -29,74 +33,65 @@ class BookingFormHandler
     protected $request;
     protected $flashBag;
     protected $bookingManager;
-    protected $registrationHandler;
+    protected $dispatcher;
 
     /**
-     * @param RequestStack            $requestStack
-     * @param BookingManager          $bookingManager
-     * @param RegistrationFormHandler $registrationHandler
+     * @param RequestStack             $requestStack
+     * @param BookingManager           $bookingManager
+     * @param EventDispatcherInterface $dispatcher
      */
     public function __construct(
         RequestStack $requestStack,
         BookingManager $bookingManager,
-        RegistrationFormHandler $registrationHandler
+        EventDispatcherInterface $dispatcher
     ) {
         $this->request = $requestStack->getCurrentRequest();
         $this->bookingManager = $bookingManager;
-        $this->registrationHandler = $registrationHandler;
+        $this->dispatcher = $dispatcher;
     }
 
 
     /**
      * Init booking
      *
-     * @param User|null  $user
-     * @param Listing    $listing
-     * @param  \DateTime $start      format yyyy-mm-dd
-     * @param  \DateTime $end        format yyyy-mm-dd
-     * @param  \DateTime $start_time format H:i
-     * @param  \DateTime $end_time   format H:i
+     * @param User|null $user
+     * @param Listing   $listing
+     * @param \DateTime $start format yyyy-mm-dd
+     * @param \DateTime $end   format yyyy-mm-dd
      *
      * @return Booking $booking
      */
     public function init(
         $user,
         Listing $listing,
-        \DateTime $start = null,
-        \DateTime $end = null,
-        \DateTime $start_time = null,
-        \DateTime $end_time = null
+        \DateTime $start,
+        \DateTime $end
     ) {
-        $dateRange = $timeRange = null;
-        if ($start && $end) {
-            $dateRange = new DateRange($start, $end);
-        }
-        if ($start_time && $end_time) {
-            $timeRange = new TimeRange(
-                new \DateTime('1970-01-01 ' . $start_time->format('H:i')),
-                new \DateTime('1970-01-01 ' . $end_time->format('H:i'))
+        //Id of an eventual booking draft
+        $bookingId = $this->request->query->get('id');
+        //If no booking draft exists a new booking is initialized
+        if (!$bookingId) {
+            //Deduct time range from date range
+            $startTime = clone $start;
+            $endTime = clone $end;
+            $endTime->modify('-' . $start->diff($end)->days . ' days');
+
+            $dateTimeRange = DateTimeRange::createFromDateTimes($start, $end, $startTime, $endTime);
+            $booking = $this->bookingManager->initBooking($listing, $user, $dateTimeRange);
+
+            $event = new BookingEvent($booking);
+            $this->dispatcher->dispatch(BookingEvents::BOOKING_INIT, $event);
+            $booking = $event->getBooking();
+        } else {
+            //If booking draft exists it is returned
+            $booking = $this->bookingManager->getRepository()->findOneBy(
+                array(
+                    'id' => $bookingId,
+                    'status' => Booking::STATUS_DRAFT,
+                    'user' => $user->getId()
+                )
             );
         }
-
-        //Get date range from post request if any
-        if ($this->request->getMethod() == 'POST') {
-            $dateRangeParameter = $this->request->request->get('date_range');
-            if (isset($dateRangeParameter['start']) && isset($dateRangeParameter['end'])) {
-                $start = \DateTime::createFromFormat('d/m/Y', $dateRangeParameter['start']);
-                $end = \DateTime::createFromFormat('d/m/Y', $dateRangeParameter['end']);
-                $dateRange = new DateRange($start, $end);
-            }
-
-            if (isset($timeRangeParameter['start']) && isset($timeRangeParameter['end'])) {
-                $timeRangeParameter = $this->request->request->get('time_range');
-                $timeRange = new TimeRange(
-                    new \DateTime('1970-01-01 ' . $timeRangeParameter['start']),
-                    new \DateTime('1970-01-01 ' . $timeRangeParameter['end'])
-                );
-            }
-        }
-
-        $booking = $this->bookingManager->initBooking($listing, $user, $dateRange, $timeRange);
 
         return $booking;
     }
@@ -107,6 +102,8 @@ class BookingFormHandler
      * @param $form
      *
      * @return int equal to :
+     * 4: Options success
+     * 3: Delivery success
      * 2: Voucher code success
      * 1: Success
      * 0: if form is not submitted:
@@ -114,14 +111,25 @@ class BookingFormHandler
      * -2: Self booking error
      * -3: Voucher error on code
      * -4: Voucher error on booking amount
+     * -5: the max delivery distance has been reached
+     * -6: distance matrix api error
      */
     public function process(Form $form)
     {
         $form->handleRequest($this->request);
 
         if ($form->isSubmitted() && $this->request->isMethod('POST')) {
-            if ($result = $this->checkVoucher($form)) {
-                return $result;//2, -3 or -4
+            if (count($this->dispatcher->getListeners(BookingFormEvents::BOOKING_NEW_FORM_PROCESS)) > 0) {
+                try {
+                    $event = new BookingFormEvent($form);
+                    $this->dispatcher->dispatch(BookingFormEvents::BOOKING_NEW_FORM_PROCESS, $event);
+                    $result = $event->getResult();
+                    if ($result !== false) {
+                        return $result;
+                    }
+                } catch (\Exception $e) {
+
+                }
             }
 
             if ($form->isValid()) {
@@ -136,48 +144,7 @@ class BookingFormHandler
         return $result;
     }
 
-
     /**
-     * todo: decouple voucher
-     *
-     * @param $form
-     *
-     * @return bool|int equal to:
-     *  2: Voucher code success
-     *  -3: Voucher error on code
-     *  -4: Voucher error on booking amount
-     *
-     * @throws \Exception
-     */
-    private function checkVoucher(Form $form)
-    {
-        $result = false;
-
-        if ($this->bookingManager->voucherIsEnabled()) {
-            $voucherForm = $form->get('voucher');
-            //Check only if Ok is clicked
-            if ($voucherForm->get('validateVoucher')->isClicked()) {
-                /** @var Booking $booking */
-                $booking = $form->getData();
-                if (!$voucherForm->get('codeVoucher')->isValid()) {
-                    if (!$booking->getAmountDiscountVoucher()) {
-                        $result = -3;//Code invalid
-                    } else {
-                        $result = -4;//Booking amount invalid
-                    }
-                } elseif ($booking->getAmountDiscountVoucher()) {
-                    $result = 2;//Success
-                }
-            }
-        }
-
-        return $result;
-    }
-
-
-    /**
-     * createFromFormat  MP Card and Pre auth. Save Booking.
-     *
      * @param Form $form
      *
      * @return int equal to :
@@ -187,17 +154,9 @@ class BookingFormHandler
     private function onSuccess(Form $form)
     {
         /** @var Booking $booking */
-        $request = $this->request->request;
         $booking = $form->getData();
-        $user = $booking->getUser();
 
-        //Login is done in BookingNewType form
-        if ($request->get('_username') || $request->get('_password')) {
-        } //Register : Authentication and Welcome email after registration
-        elseif ($form->has('user') && $form->get('user')->has("email")) {
-            $this->registrationHandler->handleRegistration($user);
-        }
-
+        //No self booking
         if ($booking->getUser() == $booking->getListing()->getUser()) {
             $result = -2;
 

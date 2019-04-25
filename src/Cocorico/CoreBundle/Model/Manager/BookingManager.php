@@ -14,20 +14,23 @@ namespace Cocorico\CoreBundle\Model\Manager;
 use Cocorico\CoreBundle\Document\ListingAvailability;
 use Cocorico\CoreBundle\Entity\Booking;
 use Cocorico\CoreBundle\Entity\Listing;
+use Cocorico\CoreBundle\Entity\ListingDiscount;
+use Cocorico\CoreBundle\Event\BookingAmountEvent;
+use Cocorico\CoreBundle\Event\BookingAmountEvents;
 use Cocorico\CoreBundle\Event\BookingEvent;
 use Cocorico\CoreBundle\Event\BookingEvents;
 use Cocorico\CoreBundle\Event\BookingPayinRefundEvent;
 use Cocorico\CoreBundle\Event\BookingValidateEvent;
 use Cocorico\CoreBundle\Mailer\TwigSwiftMailer;
-use Cocorico\CoreBundle\Model\DateRange;
-use Cocorico\CoreBundle\Model\TimeRange;
 use Cocorico\CoreBundle\Repository\BookingRepository;
+use Cocorico\CoreBundle\Repository\ListingAvailabilityRepository;
 use Cocorico\CoreBundle\Repository\ListingDiscountRepository;
-use Cocorico\CoreBundle\Smser\TwigSmser;
+use Cocorico\TimeBundle\Model\DateTimeRange;
+use Cocorico\TimeBundle\Model\TimeRange;
 use Cocorico\UserBundle\Entity\User;
+use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ODM\MongoDB\DocumentManager;
 use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\Query;
 use Doctrine\ORM\Tools\Pagination\Paginator;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
@@ -35,131 +38,127 @@ class BookingManager extends BaseManager
 {
     protected $em;
     protected $dm;
+    protected $availabilityManager;
+    protected $mailer;
+    protected $smser;
+    protected $dispatcher;
     protected $feeAsAsker;
     protected $feeAsOfferer;
     protected $endDayIncluded;
     protected $timeUnit;
     protected $timeUnitIsDay;
     protected $timesMax;
+    protected $hoursAvailable;
+    protected $expirationDelay;
+    protected $acceptationDelay;
     protected $minStartDelay;
     protected $minStartTimeDelay;
-    public $minPrice;
-    protected $listingAvailabilityManager;
-    public $maxPerPage;
-    protected $mailer;
-    protected $smser;
-    protected $smsReceiver;
-    /** @var \Cocorico\ListingOptionBundle\Model\Manager\OptionManager $optionManager */
-    protected $optionManager;
-    /** @var \Cocorico\VoucherBundle\Model\Manager\VoucherManager $voucherManager */
-    public $voucherManager;
+    protected $allowSingleDay;
     protected $defaultListingStatus;
     protected $vatRate;
     protected $includeVat;
-    protected $dispatcher;
+    protected $bundles;
+    public $minPrice;
+    public $maxPerPage;
 
     /**
-     * @param EntityManager                                              $em
-     * @param DocumentManager                                            $dm
-     * @param float                                                      $feeAsAsker
-     * @param float                                                      $feeAsOfferer
-     * @param boolean                                                    $endDayIncluded
-     * @param int                                                        $timeUnit App time unit in minutes
-     * @param int                                                        $timesMax Max times unit if time_unit is not day
-     * @param int                                                        $minStartDelay
-     * @param int                                                        $minStartTimeDelay
-     * @param int                                                        $minPrice
-     * @param ListingAvailabilityManager                                 $listingAvailabilityManager
-     * @param int                                                        $maxPerPage
-     * @param TwigSwiftMailer                                            $mailer
-     * @param TwigSmser                                                  $smser
-     * @param                                                            $smsReceiver
-     * @param                                                            $optionManager
-     * @param                                                            $voucherManager
-     * @param int                                                        $defaultListingStatus
-     * @param float                                                      $vatRate
-     * @param bool                                                       $includeVat
-     * @param EventDispatcherInterface                                   $dispatcher
+     * @param EntityManager                           $em
+     * @param DocumentManager                         $dm
+     * @param ListingAvailabilityManager              $availabilityManager
+     * @param TwigSwiftMailer                         $mailer
+     * @param \Cocorico\SMSBundle\Twig\TwigSmser|null $smser
+     * @param EventDispatcherInterface                $dispatcher
+     * @param array                                   $parameters
+     *        float     $feeAsAsker
+     *        float     $feeAsOfferer
+     *        boolean   $endDayIncluded
+     *        int       $timeUnit App time unit includeVat
+     *        int       $timesMax Max times unit if time_unit includeVat
+     *        array     $hoursAvailable
+     *        int       $minStartDelay
+     *        int       $minStartTimeDelay
+     *        int       $minPrice
+     *        int       $maxPerPage
+     *        int       $defaultListingStatus
+     *        float     $vatRate
+     *        bool      $includeVat
+     *
+     * todo: decouple sms bundle by dispatching event each time is used
      */
     public function __construct(
         EntityManager $em,
         DocumentManager $dm,
-        $feeAsAsker,
-        $feeAsOfferer,
-        $endDayIncluded,
-        $timeUnit,
-        $timesMax,
-        $minStartDelay,
-        $minStartTimeDelay,
-        $minPrice,
-        ListingAvailabilityManager $listingAvailabilityManager,
-        $maxPerPage,
-        $mailer,
+        ListingAvailabilityManager $availabilityManager,
+        TwigSwiftMailer $mailer,
         $smser,
-        $smsReceiver,
-        $optionManager,
-        $voucherManager,
-        $defaultListingStatus,
-        $vatRate,
-        $includeVat,
-        EventDispatcherInterface $dispatcher
+        EventDispatcherInterface $dispatcher,
+        $parameters
     ) {
         $this->em = $em;
         $this->dm = $dm;
-        $this->feeAsAsker = $feeAsAsker;
-        $this->feeAsOfferer = $feeAsOfferer;
-        $this->endDayIncluded = $endDayIncluded;
-        $this->timeUnit = $timeUnit;
-        $this->timeUnitIsDay = ($timeUnit % 1440 == 0) ? true : false;
-        $this->timesMax = $timesMax;
-        $this->minStartDelay = $minStartDelay;
-        $this->minStartTimeDelay = $minStartTimeDelay;
-        $this->minPrice = $minPrice;
-        $this->listingAvailabilityManager = $listingAvailabilityManager;
-        $this->maxPerPage = $maxPerPage;
+        $this->availabilityManager = $availabilityManager;
         $this->mailer = $mailer;
         $this->smser = $smser;
-        $this->smsReceiver = $smsReceiver;
-        $this->optionManager = $optionManager;
-        $this->voucherManager = $voucherManager;
-        $this->defaultListingStatus = $defaultListingStatus;
-        $this->vatRate = $vatRate;
-        $this->includeVat = $includeVat;
         $this->dispatcher = $dispatcher;
-    }
 
+        //Parameters
+        $parameters = $parameters["parameters"];
+        $this->feeAsAsker = $parameters["cocorico_fee_as_asker"];
+        $this->feeAsOfferer = $parameters["cocorico_fee_as_offerer"];
+        $this->timeUnit = $parameters["cocorico_time_unit"];
+        $this->timeUnitIsDay = ($this->timeUnit % 1440 == 0) ? true : false;
+        $this->timesMax = $parameters["cocorico_time_max"];
+        $this->hoursAvailable = $parameters["cocorico_time_hours_available"];
+
+        $this->allowSingleDay = $parameters["cocorico_booking_allow_single_day"];
+        $this->endDayIncluded = $parameters["cocorico_booking_end_day_included"];
+        if ($this->allowSingleDay) {
+            $this->endDayIncluded = true;
+        }
+        $this->expirationDelay = $parameters["cocorico_booking_expiration_delay"];
+        $this->acceptationDelay = $parameters["cocorico_booking_acceptation_delay"];
+        $this->minStartDelay = $parameters["cocorico_booking_min_start_delay"];
+        $this->minStartTimeDelay = $parameters["cocorico_booking_min_start_time_delay"];
+        $this->minPrice = $parameters["cocorico_booking_price_min"];
+
+        $this->maxPerPage = $parameters["cocorico_dashboard_max_per_page"];
+        $this->defaultListingStatus = $parameters["cocorico_listing_availability_status"];
+        $this->vatRate = $parameters["cocorico_vat"];
+        $this->includeVat = $parameters["cocorico_include_vat"];
+        $this->bundles = $parameters["cocorico_bundles"];
+    }
 
     /**
      * Pre-set new Booking based data.
      *
-     * @param Listing           $listing
-     * @param User|null         $user
-     * @param DateRange         $dateRange
-     * @param TimeRange|boolean $timeRange
+     * @param Listing       $listing
+     * @param User|null     $user
+     * @param DateTimeRange $dateTimeRange
      * @return Booking
      */
-    public function initBooking(Listing $listing, $user, DateRange $dateRange = null, $timeRange = null)
+    public function initBooking(Listing $listing, $user, DateTimeRange $dateTimeRange = null)
     {
         $booking = new Booking();
         $booking->setListing($listing);
         $booking->setUser($user);
         $booking->setStatus(Booking::STATUS_DRAFT);
 
+        $dateRange = $dateTimeRange->getDateRange();
+        $timeRange = $dateTimeRange->getFirstTimeRange();
+
         if ($dateRange && $dateRange->getStart() && $dateRange->getEnd()) {
-            $dateRange->getStart()->setTime(0, 0, 0);
-            $dateRange->getEnd()->setTime(0, 0, 0);
             $booking->setStart($dateRange->getStart());
             $booking->setEnd($dateRange->getEnd());
-        }
-
-        if (!$this->timeUnitIsDay) {
-            if ($timeRange && $timeRange->getStart() && $timeRange->getEnd()) {
+            if ($timeRange) {
                 $booking->setStartTime($timeRange->getStart());
                 $booking->setEndTime($timeRange->getEnd());
             }
         } else {
-            $booking->setStartTime(new \DateTime('1970-01-01 00:00'));
-            $booking->setEndTime(new \DateTime('1970-01-01 00:00'));
+            if ($this->timeUnitIsDay) {
+                $booking = $this->initBookingDatesInDayMode($booking);
+            } else {
+                $booking = $this->initBookingDatesInNotDayMode($booking);
+            }
         }
 
         $booking->setCancellationPolicy($listing->getCancellationPolicy());
@@ -167,9 +166,214 @@ class BookingManager extends BaseManager
         return $booking;
     }
 
+    /**
+     * Init Booking day and hours with the first listing availability in the 30 next days
+     *
+     * @param Booking $booking
+     * @return Booking
+     */
+    public function initBookingDatesInNotDayMode(Booking $booking)
+    {
+        //Special case not managed if allowSingleDay = false and endDayIncluded = true
+        if ($this->timeUnitIsDay || ($this->allowSingleDay == false && $this->endDayIncluded == true)) {
+            return $booking;
+        }
+
+        //Days:
+        // Min start date is equal to today plus "minStartDelay" days plus "minStartTimeDelay" hours
+        $minStartDate = new \DateTime();
+        //Add 1 hour to not manage minutes available
+        $intervalFormat = 'P' . $this->minStartDelay . 'DT' . ($this->minStartTimeDelay + 60) . 'M';
+        $minStartDate->add(new \DateInterval($intervalFormat));
+        $minStartDay = clone $minStartDate;
+        $minStartDay->setTime(0, 0, 0);
+
+        $maxEndDate = new \DateTime();
+        $maxEndDate->add(new \DateInterval('P1M'));
+
+        //Hours:
+        //Min max hours depending on hours available parameters
+        $minHour = $this->hoursAvailable[0] * 60;//in minutes
+        $maxHour = $this->hoursAvailable[count($this->hoursAvailable) - 1] * 60;//in minutes
+
+        //Get all listing unavailabilities from "minStartDay" until "maxEndDate"
+        //Each minutes availabilities of each days are returned
+        $availabilities = $this->availabilityManager->getAvailabilitiesStatus(
+            $booking->getListing()->getId(),
+            $minStartDay,
+            $maxEndDate,
+            $this->endDayIncluded
+        );
+
+//        echo "minStartDate: " . $minStartDate->format('Y-m-d H:i') . "<br>" . "minHour: " . $minHour . "<br>" . "maxHour: " . $maxHour . "<br>";
+//        print_r($availabilities);
+
+        //Default day and hours values
+        $dayToFind = $minStartDay;
+        $hourToFind = intval($minStartDate->format('H')) * 60;//in minutes
+        if ($hourToFind < $minHour) {
+            $hourToFind = $minHour;
+        } elseif ($hourToFind > $maxHour) {
+            $hourToFind = $maxHour;
+        }
+
+        //We look for each days if some availabilities are defined
+        $found = false;
+        for ($d = clone $minStartDay; $d <= $maxEndDate; $d->add(new \DateInterval('P1D'))) {
+            $dayToFind = $d;
+            $availability = isset($availabilities[$d->format('Ymd')]) ? $availabilities[$d->format('Ymd')] : false;
+
+            if (!$availability) {//No availability defined for this day
+                if ($this->defaultListingStatus == ListingAvailability::STATUS_AVAILABLE) {//The listing is available by default
+                    if ($d != $minStartDay) {//If d is not "minStartDay" the hour to find is the min hour available else the hour is the default one
+                        $hourToFind = $minHour;
+                    }
+                    $found = true;
+                    break;
+                }
+            } else {//An availability is defined for this day so we have to check if there are "timeUnit" consecutive minutes available
+//                echo  "day:" . $d->format('Y-m-d'). "<br>";
+                $nbMinutesAvailable = 0;
+                //If current d is equal to "minStartDay" we start at the "minStartDate" hour
+                $minHourBis = ($d == $minStartDay ? intval($minStartDate->format('H')) * 60 : $minHour);
+                for ($m = $minHourBis; $m <= $maxHour; $m++) {
+//                    echo $m . ":" . $availability[$m] . "<br>";
+                    if ($nbMinutesAvailable == $this->timeUnit) {//Previous "timeUnit" minutes was available
+                        $hourToFind = $m - $this->timeUnit;//This is the minute in the day of the first hour available
+//                        echo "hour found:" . $hourToFind . "<br>";
+                        if ($hourToFind >= $minHour && $hourToFind <= $maxHour) {//If the found hour is in the hours available range
+//                            echo "found" . "<br>";
+                            $found = true;
+                            break;
+                        } else {
+                            $nbMinutesAvailable = 0;
+                        }
+                    } else {
+                        $nbMinutesAvailable++;
+                    }
+
+                    if ($availability[$m] != ListingAvailability::STATUS_AVAILABLE) {
+                        $nbMinutesAvailable = 0;
+                    }
+                }
+
+                if ($found) {
+                    break;
+                }
+            }
+        }
+
+        if ($found) {
+            //Set Booking Day
+            $dayToFind = new \DateTime($dayToFind->format('Y-m-d'));//Timezone UTC
+
+            //Set Booking Date and Hours
+            $start = clone $dayToFind;
+            $start->setTime(0, 0, 0);
+            $start->add(new \DateInterval('PT' . $hourToFind . 'M'));
+            //start date and start time are equals
+            $booking->setStart($start);
+            $booking->setStartTime($start);
+
+            //End:
+            $endDayToFind = clone $dayToFind;
+            if ($this->allowSingleDay == false && $this->endDayIncluded == false) {
+                $endDayToFind->add(new \DateInterval('P1D'));//add one day
+            }
+
+            //Time of end date is equal to start time plus one hour
+            $end = clone $endDayToFind;
+            $end->setTime(0, 0, 0);
+            $end->add(new \DateInterval('PT' . ($hourToFind + $this->timeUnit) . 'M'));
+            $booking->setEnd($end);
+
+            //End date time is equal to start date time plus one hour
+            $endTime = clone $start;
+            $endTime->add(new \DateInterval('PT' . ($this->timeUnit) . 'M'));
+            $booking->setEndTime($endTime);
+        }
+
+//        echo $booking->getStart()->format('Y-m-d') . "<br>" . $booking->getStartTime()->format('Y-m-d H:i') . "<br>" .
+//            $booking->getEnd()->format('Y-m-d') . "<br>" . $booking->getEndTime()->format('Y-m-d H:i') . "<br>";
+
+        return $booking;
+    }
 
     /**
-     * Check Booking Availability And Set Booking Amounts if no error.
+     * Init Booking date with the first listing availability for time unit in day mode in the 30 next days
+     *
+     * @param Booking $booking
+     * @return Booking
+     */
+    public function initBookingDatesInDayMode(Booking $booking)
+    {
+        //Special case not managed if allowSingleDay = false and endDayIncluded = true
+        if (!$this->timeUnitIsDay || ($this->allowSingleDay == false && $this->endDayIncluded == true)) {
+            return $booking;
+        }
+
+        //Days
+        $minStartDay = new \DateTime();
+        $minStartDay->setTime(0, 0, 0);
+        $intervalFormat = 'P' . $this->minStartDelay . 'D';
+        $minStartDay->add(new \DateInterval($intervalFormat));
+
+        $maxEndDay = new \DateTime();
+        $maxEndDay->add(new \DateInterval('P1M'));
+
+        //Get all listing unavailabilities from "minStartDay" until "maxEndDate"
+        //Each availabilities of each days are returned
+        $availabilities = $this->availabilityManager->getAvailabilitiesStatus(
+            $booking->getListing()->getId(),
+            $minStartDay,
+            $maxEndDay,
+            $this->endDayIncluded
+        );
+
+//        echo "minStartDate: " . $minStartDay->format('Y-m-d H:i') . "<br>";
+
+        //Default day value
+        $dayToFind = $minStartDay;
+        $found = false;
+        for ($d = clone $minStartDay; $d <= $maxEndDay; $d->add(new \DateInterval('P1D'))) {
+            $dayToFind = $d;
+            $availability = isset($availabilities[$d->format('Ymd')]) ? $availabilities[$d->format('Ymd')] : false;
+
+            if (!$availability) {//No availability defined for this day
+                if ($this->defaultListingStatus == ListingAvailability::STATUS_AVAILABLE) {//The listing is available by default
+                    $found = true;
+                    break;
+                }
+            } else {//An availability is defined for this day so we have to check its availability
+                if ($availability == ListingAvailability::STATUS_AVAILABLE) {//The listing is available
+                    $found = true;
+                    break;
+                }
+            }
+        }
+
+        if ($found) {
+            //Set Booking Day
+            $dayToFind = new \DateTime($dayToFind->format('Y-m-d'));//Timezone is now default one (UTC)
+            $booking->setStart($dayToFind);
+            $booking->setEnd($dayToFind);
+            if ($this->allowSingleDay == false && $this->endDayIncluded == false) {
+                $endDayToFind = clone $dayToFind;
+                $endDayToFind->add(new \DateInterval('P1D'));
+                $booking->setEnd($endDayToFind);
+            }
+
+            //Set Booking Hour
+            $booking->setStartTime(new \DateTime('1970-01-01 00:00'));
+            $booking->setEndTime(new \DateTime('1970-01-01 00:00'));
+        }
+
+        return $booking;
+    }
+
+    /**
+     * Check booking and set amounts if no error.
+     *
      * Return the following errors if any :
      *  - self_booking_invalid => listing can not be booked by listing owner
      *  - unavailable => listing is unavailable
@@ -178,248 +382,39 @@ class BookingManager extends BaseManager
      *
      * @param Booking $booking
      *
-     * @return array errors
-     * @throws \Exception
+     * @return \stdClass
      */
-    public function checkBookingAvailabilityAndSetAmounts(Booking &$booking)
+    public function checkBookingAndSetAmounts(Booking $booking)
     {
-        $amount = 0;
-        $errors = $this->checkBookingDates($booking);
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
 
-        if (count($errors)) {
-            return $errors;
-        }
-        $listing = $booking->getListing();
-        $listingAvailabilityRepository = $this->dm->getRepository('CocoricoCoreBundle:ListingAvailability');
-        $listingAvailabilities = $listingAvailabilityRepository->getAvailabilitiesByListingAndDateRange(
-            $listing->getId(),
-            $booking->getStart(),
-            $booking->getEnd(),
-            $this->endDayIncluded,
-            false
-        );
-        //echo "nb listingAvailabilities" . $listingAvailabilities->count() . "<br>";
-
-        $bookingDuration = $booking->getDuration($this->endDayIncluded, $this->timeUnit);
-
-        //echo "bookingDuration" . $bookingDuration . "<br>";
-        //Invalid duration
-        if ($bookingDuration === false
-            || ($listing->getMinDuration() && $bookingDuration < $listing->getMinDuration())
-            || ($listing->getMaxDuration() && $bookingDuration > $listing->getMaxDuration())
-            || $bookingDuration <= 0
-        ) {
-            $errors[] = 'duration_invalid';
-        } //Unavailable
-        elseif (
-            $this->defaultListingStatus == ListingAvailability::STATUS_UNAVAILABLE
-            && !$listingAvailabilities->count()
-        ) {
-            $errors[] = 'unavailable';
-        } else {
-            $price = $listing->getPrice();
-            $amount = $bookingDuration * $price;
-            $amountByMinute = $price / $this->timeUnit;
-            foreach ($listingAvailabilities as $listingAvailability) {
-                //Listing availability
-                if ($this->getTimeUnitIsDay()) {
-                    //Availability
-                    if (count($errors) ||
-                        $listingAvailability["s"] == ListingAvailability::STATUS_UNAVAILABLE ||
-                        $listingAvailability["s"] == ListingAvailability::STATUS_BOOKED
-                    ) {
-                        $amount = 0;
-                        $errors[] = 'unavailable';
-                        break;
-                    }
-                    $amount -= $price;
-                    $amount += $listingAvailability["p"];
-                } else {
-                    if (count($errors)) {
-                        break;
-                    }
-                    //Compute amount from existing times
-                    $existingTimes = $listingAvailability["ts"];
-                    //echo "existingTimes" . print_r($existingTimes, 1) . "<br>";
-
-                    $times = array();
-                    foreach ($existingTimes as $l => $existingTime) {
-                        $times[intval($existingTime["_id"])] = $existingTime;
-                    }
-
-                    $startMinute = intval($booking->getStartTime()->getTimestamp() / 60);
-                    $nbMinutes = intval(
-                        ($booking->getEndTime()->getTimestamp() - $booking->getStartTime()->getTimestamp()) / 60
-                    );
-                    $nbMinutes += $startMinute;
-
-                    //Price defined for each minute are defined for one time unit (hour, ...)
-                    for ($k = $startMinute; $k < $nbMinutes; $k++) {
-                        //If price is defined for this minute,
-                        if (isset($times[$k])) {
-                            if ($times[$k]["s"] == ListingAvailability::STATUS_UNAVAILABLE ||
-                                $times[$k]["s"] == ListingAvailability::STATUS_BOOKED
-                            ) {
-                                $amount = 0;
-                                $errors[] = 'unavailable';
-                                break;
-                            }
-                            //We add to amount the corresponding price reported to one minute
-                            $amount -= $amountByMinute;
-                            $amount += $times[$k]["p"] / $this->timeUnit;
-                        } else {
-                            //We add to amount the price for the corresponding day reported to one minute
-                            $amount -= $amountByMinute;
-                            $amount += $listing->getPrice() / $this->timeUnit;
-                        }
-                    }
-
-                }
-            }
+        $result->errors = $this->checkBookingDates($booking);
+        if (count($result->errors)) {
+            return $result;
         }
 
-
-        if (!count($errors)) {
-            //Discount
-            /** @var ListingDiscountRepository $listingDiscountRepository */
-            $listingDiscountRepository = $this->em->getRepository("CocoricoCoreBundle:ListingDiscount");
-            $discount = $listingDiscountRepository->findOneByFromQuantity($listing->getId(), $bookingDuration);
-
-            if ($discount) {
-                $amount -= ($discount->getDiscount() / 100) * $amount;
-            }
-
-            if ($amount <= 0 || $amount < $this->minPrice) {
-                $errors[] = 'amount_invalid';
-            } else {
-                /**
-                 * Options
-                 * Options amount is added to amount to pay by asker
-                 * No discount on Options amount
-                 * Fees are taken on options amount
-                 *
-                 */
-                if ($this->optionIsEnabled() && $booking->getOptions()) {
-                    $amountOptions = $this->optionManager->getBookingOptionsAmount($booking);
-                    $booking->setAmountOptions($amountOptions);
-                    $amount = $amount + $booking->getAmountOptions();
-                }
-
-                //Booking amount and fees are setted here
-                $booking = $this->setBookingAmounts($booking, $amount);
-
-                /**
-                 * Voucher
-                 * Voucher amount is substracted from amount to pay to asker.
-                 *
-                 * Fees still the same
-                 */
-                if ($this->voucherIsEnabled() && $booking->getCodeVoucher()) {
-                    $result = $this->applyVoucherOnBooking($booking);
-                    /** @var Booking $booking */
-                    $booking = $result['booking'];
-                    $errors[] = $result['error'];
-//                    $amount = max($booking->getAmountToPayByAsker() - $booking->getAmountDiscountVoucher(), $this->minPrice);
-//                    $booking = $this->setBookingAmounts($booking, $amount);
-                }
-            }
+        $result->errors = $this->checkBookingDuration($booking);
+        if (count($result->errors)) {
+            return $result;
         }
 
-        return $errors;
-    }
-
-
-    /**
-     * Apply voucher on booking amount : Modify booking amount or return error type if any
-     *
-     * array['booking']              Booking
-     *      ['error']                string ('amount_voucher_invalid' or 'voucher_invalid') in case of error
-     *
-     * @param Booking $booking
-     * @return array (See above)
-     */
-    public function applyVoucherOnBooking(Booking $booking)
-    {
-        $result = array('booking' => $booking, 'error' => '');
-
-        $bookingAmount = $booking->getAmountToPayByAsker();
-
-        $voucher = $this->voucherManager->getRepository()->findValidVoucher(
-            $booking->getCodeVoucher(),
-            $bookingAmount
-        );
-
-        if ($voucher) {
-            $discountAmount = $this->voucherManager->getDiscountAmount(
-                $bookingAmount,
-                $voucher->getDiscountType(),
-                $voucher->getDiscount()
-            );
-
-            if ($discountAmount) {
-                $amountToPay = $bookingAmount - $discountAmount;
-                //Si le montant de la resa apres reduction est inferieur au prix minimum d'une resa
-                //Le montant de la resa devient celui du prix miminum
-                if ($amountToPay < $this->minPrice) {
-//                    $amountToPay = $this->minPrice;
-//                    $booking->setAmountFeeAsAsker(0);
-//                    $booking->setAmountFeeAsOfferer(0);
-                    $result['error'] = 'amount_voucher_invalid';
-                } else {
-                    //Si le montant de la reduction est superieur au montant des commissions demandeur
-                    //le montant des commissions demandeur devient 0
-                    //sinon le montant des commissions demandeur est egale a la commission demandeur moins le montant de la reduction
-                    if ($discountAmount >= $booking->getAmountFeeAsAsker()) {
-                        $booking->setAmountFeeAsAsker(0);
-                    } else {
-                        $booking->setAmountFeeAsAsker($booking->getAmountFeeAsAsker() - $discountAmount);
-                    }
-
-                    //Si le montant à payer est inferieur aux commissions offreur
-                    //Alors le montant des commissions offreur devient 0
-                    if ($amountToPay <= $booking->getAmountFeeAsOfferer()) {
-//                        $booking->setAmountFeeAsOfferer(0);
-                        $result['error'] = 'amount_voucher_invalid';
-                    } else {
-                        //
-                    }
-                }
-
-                if (!$result['error']) {
-                    $booking->setAmountTotal($amountToPay);
-                    $booking->setAmountDiscountVoucher($bookingAmount - $amountToPay);
-                    $booking->setDiscountVoucher($voucher->getDiscount());//Memorize discount voucher value to booking
-                } else {
-                    $booking->setAmountTotal(0);
-                    $booking->setDiscountVoucher(null);
-                    $booking->setAmountDiscountVoucher(null);
-                }
-
-//                $this->logBookingAmounts($booking);
-            }
-        } else {
-            $result['error'] = 'code_voucher_invalid';
+        $result = $this->checkBookingAvailability($booking);
+        if (count($result->errors)) {
+            return $result;
         }
 
-        $result['booking'] = $booking;
+        $booking = $result->booking;
+        $result = $this->setBookingAmounts($booking);
 
         return $result;
     }
 
-
-//    private function logBookingAmounts(Booking $booking)
-//    {
-//       echo "booking->amount:" . $booking->getAmount() . "<br>";
-//        echo "booking->amountTotal:" . $booking->getAmountTotal() . "<br>";
-//        echo "booking->amountFeeAsAsker:" . $booking->getAmountFeeAsAsker() . "<br>";
-//        echo "booking->amountFeeAsOfferer:" . $booking->getAmountFeeAsOfferer() . "<br>";
-//        echo "booking->amountDiscountVoucher:" . $booking->getAmountDiscountVoucher() . "<br>";
-//    }
-
     /**
      * //todo: Check factorization with DateRangeValidator->onPostBind
      * Check if booking dates are correct:
-     *  Return :
+     *  Errors :
      *      - date_range.invalid.min_start if start date is incorrect (start is greater than today plus minStartDelay days)
      *      - date_range.invalid.max_end if end date is incorrect (More than one year later)
      *      - date_range.invalid.end_before_start if start is after end
@@ -432,24 +427,24 @@ class BookingManager extends BaseManager
      *
      * @param Booking $booking
      *
-     * @return array errors
+     * @return array
      */
-    protected function checkBookingDates(Booking $booking)
+    private function checkBookingDates(Booking $booking)
     {
         $errors = array();
 
-        $now = new \DateTime();
+        $minStart = new \DateTime();
         if ($this->minStartDelay > 0) {
-            $now->add(new \DateInterval('P' . $this->minStartDelay . 'D'));
+            $minStart->add(new \DateInterval('P' . $this->minStartDelay . 'D'));
         }
 
         if ($booking->getStart()) {
-            $interval = $now->diff($booking->getStart())->format('%r%a');
+            $interval = $minStart->diff($booking->getStart())->format('%r%a');
             if ($interval < 0) {
                 $errors[] = 'date_range.invalid.min_start';
             }
 
-            $oneYearLater = $now->add(new \DateInterval('P1Y'));
+            $oneYearLater = $minStart->add(new \DateInterval('P1Y'));
             if ($booking->getEnd() > $oneYearLater) {
                 $errors[] = 'date_range.invalid.max_end';
             }
@@ -462,20 +457,23 @@ class BookingManager extends BaseManager
                 if (!$booking->getStartTime() || !$booking->getEndTime()) {
                     $errors[] = 'time_range.invalid.required';
                 }
-                if ($booking->getStartTime() > $booking->getEndTime()) {
+                if ($booking->getStartTime() > $booking->getEndTime() &&
+                    $booking->getEndTime()->format('H:i') != '00:00'
+                ) {
                     $errors[] = 'time_range.invalid.end_before_start';
                 } elseif ($booking->getStartTime() == $booking->getEndTime()) {
                     $errors[] = 'time_range.invalid.single_time';
                 }
 
                 if ($booking->getStartTime() && $booking->getEndTime()) {
-                    $timeRange = new TimeRange($booking->getStartTime(), $booking->getEndTime());
+                    $timeRange = $booking->getTimeRange();
                     $duration = $timeRange->getDuration($this->timeUnit);
+
                     if ($duration > $this->timesMax || !$duration) {
                         $errors[] = 'time_range.invalid.duration';
                     }
 
-                    if (!$booking->hasCorrectStartTime(
+                    if (!$booking->beginAfterMinStartDate(
                         $this->minStartDelay,
                         $this->minStartTimeDelay,
                         $this->getTimeUnitIsDay()
@@ -491,56 +489,365 @@ class BookingManager extends BaseManager
         return $errors;
     }
 
-
     /**
-     * Set all related booking amounts (booking amount, fee as asker and offerer)
+     * Check booking duration
      *
      * @param Booking $booking
-     * @param  int    $amount
+     * @return array
+     */
+
+
+    private function checkBookingDuration(Booking $booking)
+    {
+        $errors = array();
+
+        $duration = $booking->getDuration($this->endDayIncluded, $this->timeUnit);
+        $listing = $booking->getListing();
+        $min = $listing->getMinDuration();
+        $max = $listing->getMaxDuration();
+
+        if ($duration === false || ($min && $duration < $min) || ($max && $duration > $max) || $duration <= 0) {
+            $errors[] = 'duration_invalid';
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Check booking availability and set booking amount from availabilities
      *
+     * @param Booking $booking
+     *
+     * @return \stdClass
+     *
+     * @throws \Exception
+     */
+    private function checkBookingAvailability(Booking $booking)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        //Get availabilities
+        $start = clone $booking->getStart();
+        $end = clone $booking->getEnd();
+        $start->setTime(0, 0, 0);
+        if ($end->format('H:i') == '00:00') {// No availabilities search on end date if it is equal to midnight
+            $end->modify('-1 minute');
+        }
+
+
+        $availabilities = $this->getAvailabilityRepository()->findAvailabilitiesByListing(
+            $booking->getListing()->getId(),
+            $start,
+            $end,
+            $this->endDayIncluded,
+            false
+        );
+
+        //Unavailable if listing is unavailable by default and does not have availabilities
+        if (!$availabilities->count() && $this->defaultListingStatus == ListingAvailability::STATUS_UNAVAILABLE) {
+            $booking->setAmount(0);
+            $result->booking = $booking;
+            $result->errors[] = 'unavailable';
+
+            return $result;
+        }
+
+        if ($this->getTimeUnitIsDay()) {
+            $result = $this->checkBookingAvailabilityInDayMode($booking, $availabilities);
+        } else {
+            $result = $this->checkBookingAvailabilityInNoDayMode($booking, $availabilities);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param Booking                               $booking
+     * @param ListingAvailability[]|ArrayCollection $availabilities
+     * @return \stdClass
+     */
+    private function checkBookingAvailabilityInDayMode(Booking $booking, $availabilities)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        $duration = $booking->getDuration($this->endDayIncluded, $this->timeUnit);
+        $price = $booking->getListing()->getPrice();
+        $amount = $duration * $price;
+
+        foreach ($availabilities as $availability) {
+            if ($availability["s"] == ListingAvailability::STATUS_UNAVAILABLE ||
+                $availability["s"] == ListingAvailability::STATUS_BOOKED
+            ) {
+                $booking->setAmount(0);
+                $result->booking = $booking;
+                $result->errors[] = 'unavailable';
+
+                return $result;
+            }
+
+            $amount -= $price;
+            $amount += $availability["p"];
+        }
+
+        $booking->setAmount($amount);
+        $result->booking = $booking;
+
+        return $result;
+    }
+
+
+    /**
+     * @param Booking                               $booking
+     * @param ListingAvailability[]|ArrayCollection $availabilities
+     * @return \stdClass
+     * @throws \Exception
+     */
+    private function checkBookingAvailabilityInNoDayMode(Booking $booking, $availabilities)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        $isAvailableByDefault = $this->defaultListingStatus == ListingAvailability::STATUS_AVAILABLE;
+
+        $daysTimeRanges = $booking->getDateTimeRange()->getDaysTimeRanges(true);
+
+        $duration = $booking->getDuration($this->endDayIncluded, $this->timeUnit);
+        $price = $booking->getListing()->getPrice();
+        $amountByMinute = $price / $this->timeUnit;
+        $amount = $duration * $price;
+
+//        echo count($availabilities) . '<br>';
+        foreach ($availabilities as $availability) {
+            if (!isset($availability["ts"])) {
+                throw new \Exception("Time unit seems to have been changed from day to hour(s).");
+            }
+
+            $times = array();
+            foreach ($availability["ts"] as $time) {
+                $times[intval($time["_id"])] = $time;
+            }
+
+            //Find time range for current day
+            $day = new \DateTime('@' . $availability["d"]->sec);
+            /** @var TimeRange $timeRange */
+            $timeRange = reset($daysTimeRanges[$day->format('Y-m-d')]->timeRanges);
+
+//            echo $day->format('Y-m-d') . '<br>';
+//            print_r($daysTimeRanges);
+//            echo $timeRange->getStartMinute() . ' / ' . $timeRange->getEndMinute() . '<br>';
+
+            //Price defined for each minute are defined for one time unit (hour, ...)
+            for ($k = $timeRange->getStartMinute(); $k < $timeRange->getEndMinute(); $k++) {
+                $isAvailable =
+                    (isset($times[$k]) && $times[$k]["s"] == ListingAvailability::STATUS_AVAILABLE) ||
+                    (!isset($times[$k]) && $isAvailableByDefault);
+
+                if (!$isAvailable) {
+                    $booking->setAmount(0);
+                    $result->booking = $booking;
+                    $result->errors[] = 'unavailable';
+
+                    return $result;
+                }
+
+                //If price reported to one minute is defined for this minute, it is added to amount
+                if (isset($times[$k])) {
+                    $amount -= $amountByMinute;
+                    $amount += $times[$k]["p"] / $this->timeUnit;
+                }
+            }
+        }
+
+        $booking->setAmount($amount);
+        $result->booking = $booking;
+
+        return $result;
+    }
+
+    /**
+     * @param Booking $booking
+     *
+     * @return \stdClass
+     */
+    private function setBookingAmounts(Booking $booking)
+    {
+        //Discount
+        $discount = $this->getBookingDiscount($booking);
+        $booking = $this->applyDiscountOnBooking($booking, $discount);
+
+        //Pre amount setting
+        $result = $this->dispatchPreAmountSetting($booking, $discount);
+        if (count($result->errors)) {
+            return $result;
+        }
+
+        //Booking amount and fees setting
+        $booking = $result->booking;
+        $result = $this->setBookingAmountsAndFees($booking);
+        if (count($result->errors)) {
+            return $result;
+        }
+
+        //Post amount setting
+        $booking = $result->booking;
+        $result = $this->dispatchPostAmountSetting($booking, $discount);
+
+        return $result;
+    }
+
+    /**
+     * Get ListingDiscount by booking duration
+     *
+     * @param Booking $booking
+     *
+     * @return \Cocorico\CoreBundle\Entity\ListingDiscount|null
+     */
+    private function getBookingDiscount(Booking $booking)
+    {
+        /** @var ListingDiscountRepository $listingDiscountRepository */
+        $listingDiscountRepository = $this->em->getRepository("CocoricoCoreBundle:ListingDiscount");
+
+        return $listingDiscountRepository->findOneByFromQuantity(
+            $booking->getListing()->getId(),
+            $booking->getDuration($this->endDayIncluded, $this->timeUnit)
+        );
+    }
+
+    /**
+     * Apply discount on booking
+     *
+     * @param Booking              $booking
+     * @param ListingDiscount|null $discount
      * @return Booking
      */
-    public function setBookingAmounts(Booking $booking, $amount)
+    private function applyDiscountOnBooking(Booking $booking, ListingDiscount $discount = null)
     {
-        if ($amount > 0) {
-            //If VAT is not included in listing prices fixing then VAT amount is added here
-            if (!$this->includeVat) {
-                $amount += $amount * $this->vatRate;
-            }
-
-            //Amounts
-            $booking->setAmount(round($amount));
-
-            //Fees computation Asker
-            $asker = $booking->getUser();
-            $booking->setAmountFeeAsAsker($this->feeAsAsker * $amount);
-            //If user has a custom fee defined we use it
-            if ($asker) {
-                $feeAsAsker = $asker->getFeeAsAsker();
-                if ($feeAsAsker || $feeAsAsker === 0) {
-                    $booking->setAmountFeeAsAsker(($feeAsAsker / 100) * $amount);
-                }
-            }
-
-            //Fees computation Offerer
-            $offerer = $booking->getListing()->getUser();
-            $booking->setAmountFeeAsOfferer($this->feeAsOfferer * $amount);
-            //If user has a custom fee defined we use it
-            if ($offerer) {
-                $feeAsOfferer = $offerer->getFeeAsOfferer();
-                if ($feeAsOfferer || $feeAsOfferer === 0) {
-                    $booking->setAmountFeeAsOfferer(($feeAsOfferer / 100) * $amount);
-                }
-            }
-
-            //Round cents with decimal
-            $booking->setAmountFeeAsAsker(round($booking->getAmountFeeAsAsker()));
-            $booking->setAmountFeeAsOfferer(round($booking->getAmountFeeAsOfferer()));
-
-            $booking->setAmountTotal($booking->getAmount() + $booking->getAmountFeeAsAsker());
+        if ($discount) {
+            $booking->setAmount($booking->getAmount() - ($discount->getDiscount() / 100) * $booking->getAmount());
         }
 
         return $booking;
+    }
+
+    /**
+     * Booking amount modifications before booking amount and fees setting
+     *
+     * @param Booking              $booking
+     * @param ListingDiscount|null $discount
+     *
+     * @return \stdClass
+     */
+    private function dispatchPreAmountSetting(Booking $booking, ListingDiscount $discount = null)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        try {
+            $event = new BookingAmountEvent($booking, $discount);
+            $this->dispatcher->dispatch(BookingAmountEvents::BOOKING_PRE_AMOUNTS_SETTING, $event);
+            $result->booking = $event->getBooking();
+        } catch (\Exception $e) {
+            $result->errors[] = $e->getMessage();
+        }
+
+        return $result;
+    }
+
+    /**
+     * Set all related booking amounts (booking amount, asker and offerer fees)
+     *
+     * @param Booking $booking
+     *
+     * @return \stdClass
+     */
+    private function setBookingAmountsAndFees(Booking $booking)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        if ($booking->getAmount() <= 0 || $booking->getAmount() < $this->minPrice) {
+            $result->errors[] = 'amount_invalid';
+
+            return $result;
+        }
+
+
+        //If VAT is not included in listing prices fixing then VAT amount is added here
+        if (!$this->includeVat) {
+            $booking->setAmount($booking->getAmount() + $booking->getAmount() * $this->vatRate);
+        }
+        //Amounts
+        $booking->setAmount(round($booking->getAmount()));
+
+        //Fees computation Asker
+        $asker = $booking->getUser();
+        $booking->setAmountFeeAsAsker($this->feeAsAsker * $booking->getAmount());
+        //If user has a custom fee defined we use it
+        if ($asker) {
+            $feeAsAsker = $asker->getFeeAsAsker();
+            if ($feeAsAsker || $feeAsAsker === 0) {
+                $booking->setAmountFeeAsAsker(($feeAsAsker / 100) * $booking->getAmount());
+            }
+        }
+
+        //Fees computation Offerer
+        $offerer = $booking->getListing()->getUser();
+        $booking->setAmountFeeAsOfferer($this->feeAsOfferer * $booking->getAmount());
+        //If user has a custom fee defined we use it
+        if ($offerer) {
+            $feeAsOfferer = $offerer->getFeeAsOfferer();
+            if ($feeAsOfferer || $feeAsOfferer === 0) {
+                $booking->setAmountFeeAsOfferer(($feeAsOfferer / 100) * $booking->getAmount());
+            }
+        }
+
+        //Round cents with decimal
+        $booking->setAmountFeeAsAsker(round($booking->getAmountFeeAsAsker()));
+        $booking->setAmountFeeAsOfferer(round($booking->getAmountFeeAsOfferer()));
+
+        $booking->setAmountTotal($booking->getAmount() + $booking->getAmountFeeAsAsker());
+
+        $result->booking = $booking;
+
+        return $result;
+    }
+
+    /**
+     * @param Booking              $booking
+     * @param ListingDiscount|null $discount
+     *
+     * @return  \stdClass
+     */
+    private function dispatchPostAmountSetting(Booking $booking, ListingDiscount $discount = null)
+    {
+        $result = new \stdClass();
+        $result->errors = array();
+        $result->booking = $booking;
+
+        if ($booking->getAmount() <= 0 || $booking->getAmount() < $this->minPrice) {
+            $result->errors[] = 'amount_invalid';
+
+            return $result;
+        }
+
+        //Booking amount modifications after booking amount and fees setting
+        try {
+            $event = new BookingAmountEvent($booking, $discount);
+            $this->dispatcher->dispatch(BookingAmountEvents::BOOKING_POST_AMOUNTS_SETTING, $event);
+            $result->booking = $event->getBooking();
+        } catch (\Exception $e) {
+            $result->errors[] = $e->getMessage();
+        }
+
+
+        return $result;
     }
 
     /**
@@ -580,7 +887,13 @@ class BookingManager extends BaseManager
         $queryBuilder = $this->getRepository()->getFindByAskerQuery($askerId, $locale, $status);
 
         $queryBuilder
-            ->andWhere('b.mangopayPayinPreAuthId IS NOT NULL');
+            ->andWhere('b.payedBookingAt IS NOT NULL')
+            ->orderBy('b.payedBookingAt', 'desc');
+
+        if ($this->mangopayIsEnabled()) {
+            $queryBuilder
+                ->andWhere('b.mangopayPayinPreAuthId IS NOT NULL');
+        }
 
         //Pagination
         $queryBuilder
@@ -648,17 +961,18 @@ class BookingManager extends BaseManager
             //New Booking confirmation
             $booking->setStatus(Booking::STATUS_NEW);
             $booking->setNewBookingAt(new \DateTime());
-            $booking = $this->save($booking);
 
-            //Voucher use
-            if ($this->voucherIsEnabled()) {
-                $this->voucherManager->checkVoucherUse($booking);
-            }
+            $booking->setTimeZoneAsker($booking->getUser()->getTimeZone());
+            $booking->setTimeZoneOfferer($booking->getListing()->getUser()->getTimeZone());
+
+            $booking = $this->save($booking);
 
             $this->mailer->sendBookingRequestMessageToOfferer($booking);
             $this->mailer->sendBookingRequestMessageToAsker($booking);
 
-            $this->smser->sendBookingRequestMessageToOfferer($booking);
+            if ($this->smser) {
+                $this->smser->sendBookingRequestMessageToOfferer($booking);
+            }
 
             return $booking;
         }
@@ -669,16 +983,27 @@ class BookingManager extends BaseManager
     /**
      * Alert Expiring Bookings
      *
+     * @param int $alertExpirationDelay
      * @param int $expirationDelay
+     * @param int $acceptationDelay
      *
      * @return integer
      */
-    public function alertExpiringBookings($expirationDelay)
-    {
+    public function alertExpiringBookings(
+        $alertExpirationDelay,
+        $expirationDelay = null,
+        $acceptationDelay = null
+    ) {
         $result = 0;
+        $expirationDelay = $expirationDelay !== null ? $expirationDelay : $this->expirationDelay;
+        $acceptationDelay = $acceptationDelay !== null ? $acceptationDelay : $this->acceptationDelay;
+
         $bookingsExpiringToAlert = $this->getRepository()->findBookingsExpiringToAlert(
-            $expirationDelay
+            $alertExpirationDelay,
+            $expirationDelay,
+            $acceptationDelay
         );
+
         foreach ($bookingsExpiringToAlert as $bookingExpiringToAlert) {
             if ($this->alertExpiring($bookingExpiringToAlert)) {
                 $result++;
@@ -702,7 +1027,9 @@ class BookingManager extends BaseManager
             $booking = $this->save($booking);
             //Mail offerer
             $this->mailer->sendBookingExpirationAlertMessageToOfferer($booking);
-            $this->smser->sendBookingExpirationAlertMessageToOfferer($booking);
+            if ($this->smser) {
+                $this->smser->sendBookingExpirationAlertMessageToOfferer($booking);
+            }
 
             return true;
         }
@@ -710,18 +1037,25 @@ class BookingManager extends BaseManager
         return false;
     }
 
-
     /**
      * Expire Bookings
      *
      * @param int $expirationDelay
+     * @param int $acceptationDelay
      *
      * @return integer
      */
-    public function expireBookings($expirationDelay)
+    public function expireBookings($expirationDelay = null, $acceptationDelay = null)
     {
         $result = 0;
-        $bookingsToExpire = $this->getRepository()->findBookingsToExpire($expirationDelay);
+        $expirationDelay = $expirationDelay !== null ? $expirationDelay : $this->expirationDelay;
+        $acceptationDelay = $acceptationDelay !== null ? $acceptationDelay : $this->acceptationDelay;
+
+        $bookingsToExpire = $this->getRepository()->findBookingsToExpire(
+            $expirationDelay,
+            $acceptationDelay
+        );
+
         foreach ($bookingsToExpire as $bookingToExpire) {
             if ($this->expire($bookingToExpire)) {
                 $result++;
@@ -730,7 +1064,6 @@ class BookingManager extends BaseManager
 
         return $result;
     }
-
 
     /**
      * Expire Booking
@@ -744,12 +1077,14 @@ class BookingManager extends BaseManager
         if (in_array($booking->getStatus(), Booking::$expirableStatus)) {
             $booking->setStatus(Booking::STATUS_EXPIRED);
             $booking = $this->save($booking);
-            //Mail offerer
-            $this->mailer->sendBookingRequestExpiredMessageToOfferer($booking);
-            $this->smser->sendBookingRequestExpiredMessageToOfferer($booking);
-            //Mail asker
-            $this->mailer->sendBookingRequestExpiredMessageToAsker($booking);
-            $this->smser->sendBookingRequestExpiredMessageToAsker($booking);
+
+            $this->mailer->sendBookingRequestExpiredMessageToOfferer($booking);//Mail offerer
+            $this->mailer->sendBookingRequestExpiredMessageToAsker($booking);//Mail asker
+
+            if ($this->smser) {
+                $this->smser->sendBookingRequestExpiredMessageToOfferer($booking);
+                $this->smser->sendBookingRequestExpiredMessageToAsker($booking);
+            }
 
             return true;
         }
@@ -791,17 +1126,74 @@ class BookingManager extends BaseManager
         if (in_array($booking->getStatus(), Booking::$validatableStatus)) {
             $booking->setAlertedImminent(true);
             $booking = $this->save($booking);
-            //Mail offerer
-            $this->mailer->sendBookingImminentMessageToOfferer($booking);
-            $this->smser->sendBookingImminentMessageToOfferer($booking);
-            //Mail asker
-            $this->mailer->sendBookingImminentMessageToAsker($booking);
-            $this->smser->sendBookingImminentMessageToAsker($booking);
+
+            $this->mailer->sendBookingImminentMessageToOfferer($booking);//Mail offerer
+            $this->mailer->sendBookingImminentMessageToAsker($booking);//Mail asker
+
+            if ($this->smser) {
+                $this->smser->sendBookingImminentMessageToOfferer($booking);
+                $this->smser->sendBookingImminentMessageToAsker($booking);
+            }
 
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Return whether a booking can be canceled by asker
+     *
+     * @param Booking $booking
+     *
+     * @return bool
+     */
+    public function canBeCanceledByAsker(Booking $booking)
+    {
+        $statusIsOk = in_array($booking->getStatus(), Booking::$cancelableStatus);
+        $hasStarted = $booking->hasStarted();
+
+        //todo: check if refund can be made with voucher amount
+        if ($this->voucherIsEnabled()) {
+            if ($booking->getAmountDiscountVoucher()) {
+                return false;
+            }
+        }
+
+        if ($statusIsOk && !$hasStarted && !$booking->isValidated()) {
+            return true;
+        } else {
+            return false;
+        }
+
+    }
+
+    /**
+     * Return whether a booking can be accepted or refused by offerer
+     * A booking can be accepted or refused no later than $acceptationDelay hours before it starts
+     * and no later than $expirationDelay hours after new booking request date
+     *
+     * @param Booking $booking
+     *
+     * @return bool
+     */
+    public function canBeAcceptedOrRefusedByOfferer(Booking $booking)
+    {
+        //$refusableStatus is equal to $payableStatus
+        $statusIsOk = in_array($booking->getStatus(), Booking::$payableStatus);
+
+        $isNotExpired = $booking->getTimeBeforeExpiration(
+            $this->expirationDelay,
+            $this->acceptationDelay
+        );
+        $isNotExpired = $isNotExpired && $isNotExpired > 0;
+
+        if ($statusIsOk && $isNotExpired) {
+            return true;
+        } else {
+            return false;
+        }
+
     }
 
     /**
@@ -817,7 +1209,8 @@ class BookingManager extends BaseManager
      */
     public function pay(Booking $booking)
     {
-        if (in_array($booking->getStatus(), Booking::$payableStatus)) {
+        $canBeAcceptedOrRefused = $this->canBeAcceptedOrRefusedByOfferer($booking);
+        if ($canBeAcceptedOrRefused) {
             try {
                 $event = new BookingEvent($booking);
                 $this->dispatcher->dispatch(BookingEvents::BOOKING_PAY, $event);//Payment is done here
@@ -829,22 +1222,21 @@ class BookingManager extends BaseManager
 
                 $listing = $booking->getListing();
 
-                $this->listingAvailabilityManager->saveAvailabilitiesStatus(
+                $this->availabilityManager->saveAvailabilitiesStatus(
                     $listing->getId(),
-                    new DateRange($booking->getStart(), $booking->getEnd()),
+                    $booking->getDateTimeRange(),
                     array(),
-                    $this->timeUnitIsDay ? array() : array(
-                        new TimeRange($booking->getStartTime(), $booking->getEndTime())
-                    ),
                     ListingAvailability::STATUS_BOOKED,
                     $listing->getPrice(),
-                    $this->endDayIncluded,
                     false
                 );
 
                 $this->mailer->sendBookingAcceptedMessageToAsker($booking);
                 $this->mailer->sendBookingAcceptedMessageToOfferer($booking);
-                $this->smser->sendBookingAcceptedMessageToAsker($booking);
+
+                if ($this->smser) {
+                    $this->smser->sendBookingAcceptedMessageToAsker($booking);
+                }
 
                 //Refuse other booking requests existing in this booking date range
                 $bookingsToRefuse = $this->getRepository()->findBookingsToRefuse(
@@ -852,12 +1244,15 @@ class BookingManager extends BaseManager
                     $this->endDayIncluded,
                     $this->timeUnitIsDay
                 );
+
                 foreach ($bookingsToRefuse as $bookingToRefuse) {
-                    $this->refuse($bookingToRefuse);
+                    $this->refuse($bookingToRefuse, false);
                 }
 
                 return $booking;
             } catch (\Exception $e) {
+//                throw new \Exception($e);
+
                 //In case of error while payment for example
                 return false;
             }
@@ -866,28 +1261,32 @@ class BookingManager extends BaseManager
         return false;
     }
 
-
     /**
      * Offerer refuse booking :
      *  Set booking status as refused
      *  Send mails
      *
      * @param Booking $booking
+     * @param bool    $refusedByOfferer
      *
      * @return Booking|bool
      */
-    public function refuse(Booking $booking)
+    public function refuse(Booking $booking, $refusedByOfferer = true)
     {
-        if (in_array($booking->getStatus(), Booking::$refusableStatus)) {
+        $canBeAcceptedOrRefused = $this->canBeAcceptedOrRefusedByOfferer($booking);
+        if ($canBeAcceptedOrRefused) {
             $booking->setStatus(Booking::STATUS_REFUSED);
             $booking->setRefusedBookingAt(new \DateTime());
             $booking = $this->save($booking);
 
             $this->mailer->sendBookingRefusedMessageToAsker($booking);
-            $this->smser->sendBookingRefusedMessageToAsker($booking);
+            if ($refusedByOfferer) {
+                $this->mailer->sendBookingRefusedMessageToOfferer($booking);
+            }
 
-            $this->mailer->sendBookingRefusedMessageToOfferer($booking);
-
+            if ($this->smser) {
+                $this->smser->sendBookingRefusedMessageToAsker($booking);
+            }
 
             return $booking;
         }
@@ -907,6 +1306,7 @@ class BookingManager extends BaseManager
     public function validateBookings($validatedMoment, $validatedDelay)
     {
         $result = 0;
+
         $bookingsToValidate = $this->getRepository()->findBookingsToValidate(
             $validatedMoment,
             $validatedDelay
@@ -920,10 +1320,9 @@ class BookingManager extends BaseManager
         return $result;
     }
 
-
     /**
      * Validate Booking:
-     *  Transfer the funds from the buyer's wallet to the seller's wallet.
+     *  Transfer the funds from the asker's wallet to the offerer's wallet.
      *  The offerer can be payed.
      *  Platform fees are taken here.
      *
@@ -937,7 +1336,6 @@ class BookingManager extends BaseManager
 
             $event = new BookingValidateEvent($booking);
             $this->dispatcher->dispatch(BookingEvents::BOOKING_VALIDATE, $event);
-
             $booking = $event->getBooking();
             $validated = $event->getValidated();
 
@@ -945,18 +1343,19 @@ class BookingManager extends BaseManager
                 $booking->setValidated(true);
                 $booking = $this->save($booking);
 
-                //Offerer hasBooking setted
+                //Offerer nb bookings setting
                 $offerer = $booking->getListing()->getUser();
-                if (!$offerer->getHasBooking()) {
-                    $offerer->setHasBooking(1);
-                    $this->em->persist($offerer);
-                    $this->em->flush();
-                }
+                $offerer->setNbBookingsOfferer($offerer->getNbBookingsOfferer() + 1);
+                $this->em->persist($offerer);
+                $this->em->flush();
 
-                //Voucher used
-                if ($this->voucherIsEnabled()) {
-                    $this->voucherManager->checkVoucherUsed($booking);
-                }
+                //Asker nb bookings setting
+                $asker = $booking->getUser();
+                $asker->setNbBookingsAsker($asker->getNbBookingsAsker() + 1);
+                $this->em->persist($asker);
+                $this->em->flush();
+
+                $this->dispatcher->dispatch(BookingEvents::BOOKING_POST_VALIDATE, $event);
 
                 //Mail offerer
                 $this->mailer->sendReminderToRateAskerMessageToOfferer($booking);
@@ -964,12 +1363,14 @@ class BookingManager extends BaseManager
                 $this->mailer->sendReminderToRateOffererMessageToAsker($booking);
 
                 return true;
+            } else {
+                $booking->setStatus(Booking::STATUS_PAYMENT_REFUSED);
+                $this->save($booking);
             }
         }
 
         return false;
     }
-
 
     /**
      * Asker cancel booking.
@@ -991,7 +1392,7 @@ class BookingManager extends BaseManager
      */
     public function cancel(Booking $booking)
     {
-        if ($booking->canBeCanceledByAsker()) {
+        if ($this->canBeCanceledByAsker($booking)) {
             $cancelable = false;
 
             if ($booking->getStatus() == Booking::STATUS_PAYED) {
@@ -1006,17 +1407,15 @@ class BookingManager extends BaseManager
 
             if ($cancelable) {
                 if ($booking->getStatus() == Booking::STATUS_PAYED) {
+                    $listing = $booking->getListing();
+
                     //Free booking availabilities
-                    $this->listingAvailabilityManager->saveAvailabilitiesStatus(
-                        $booking->getListing()->getId(),
-                        new DateRange($booking->getStart(), $booking->getEnd()),
+                    $this->availabilityManager->saveAvailabilitiesStatus(
+                        $listing->getId(),
+                        $booking->getDateTimeRange(),
                         array(),
-                        $this->timeUnitIsDay ? array() : array(
-                            new TimeRange($booking->getStartTime(), $booking->getEndTime())
-                        ),
                         ListingAvailability::STATUS_AVAILABLE,
-                        $booking->getListing()->getPrice(),
-                        $this->endDayIncluded,
+                        $listing->getPrice(),
                         true
                     );
                 }
@@ -1027,7 +1426,11 @@ class BookingManager extends BaseManager
 
                 $this->mailer->sendBookingCanceledByAskerMessageToAsker($booking);
                 $this->mailer->sendBookingCanceledByAskerMessageToOfferer($booking);
-                $this->smser->sendBookingCanceledByAskerMessageToOfferer($booking);
+
+                if ($this->smser) {
+                    $this->smser->sendBookingCanceledByAskerMessageToOfferer($booking);
+                }
+
 
                 return $booking;
             }
@@ -1035,119 +1438,6 @@ class BookingManager extends BaseManager
 
         return false;
     }
-
-    /**
-     * Accept or refuse booking from sms response
-     *
-     * @return bool|int
-     */
-    public function acceptOrRefuseFromSMS()
-    {
-        $result = 0;
-
-        //Get all last sms response
-        $start = new \DateTime();
-        $interval = new \DateInterval('PT1H');
-        $start->sub($interval);
-        $end = new \DateTime();
-        $end->add($interval);
-        $allSMS = $this->smsReceiver->receiveAll($start, $end);
-
-        //SMS response
-        foreach ($allSMS as $sms) {
-            //Get one sms response
-            $smsReceived = $this->smsReceiver->receiveOne($sms->getId());
-            if ($smsReceived) {
-                //tag is of form: [SMS type]-[User Id]-[Booking Id]. See CoreBundle/TwigSmser->sendBookingMessagesToOfferer
-                $tag = explode("-", $smsReceived->getTag());
-                if (count($tag) == 3) {
-                    $smsType = $tag[0];
-                    $userId = $tag[1];
-                    $bookingId = $tag[2];
-
-                    if ($smsType == "booking_request_offerer" && $userId && $bookingId) {
-                        /** @var Booking $booking */
-                        $booking = $this->getRepository()
-                            ->findOneBy(
-                                array('id' => $bookingId)
-                            );
-
-                        //If SMS received is send from offerer
-                        if ($booking && $booking->getListing()->getUser()->getId() == $userId) {
-                            $answer = $smsReceived->getMessage();
-                            $answer = trim($answer);
-                            if (strtolower($answer) == "yes" || strtolower($answer) == "oui") {
-                                if ($this->pay($booking)) {
-                                    $result++;
-                                }
-                            } elseif (strtolower($answer) == "no" || strtolower($answer) == "non") {
-                                if ($this->refuse($booking)) {
-                                    $result++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        //Check SMS credits left
-        $smsCreditLeft = $this->smsReceiver->getProvider()->checkSMSCreditsLeft();
-        $now = new \DateTime();
-
-        if ($smsCreditLeft && $smsCreditLeft < 30 && $now->format('H:i') == '10:00') {
-            $this->mailer->sendMessageToAdmin(
-                'SMS credits limit reached',
-                'Hello, The number of remaining SMS is ' . $smsCreditLeft . '.'
-            );
-        }
-
-        return $result;
-    }
-
-    /**
-     * Add listing options to the corresponding booking
-     *
-     * @param Booking $booking
-     * @param array   $locales
-     * @param string  $locale
-     *
-     * @return Booking
-     */
-    public function setBookingOptions(Booking $booking, $locales, $locale)
-    {
-        if ($this->optionIsEnabled()) {
-            /** @var \Cocorico\ListingOptionBundle\Repository\ListingOptionRepository $repo */
-            $repo = $this->getEntityManager()->getRepository('CocoricoListingOptionBundle:ListingOption');
-            $listingOptions = $repo->findByListing($booking->getListing()->getId(), $locale);
-
-            foreach ($listingOptions as $i => $listingOption) {
-                $option = new \Cocorico\ListingOptionBundle\Entity\BookingOption();
-                $option->setBooking($booking);
-                $option->setPrice($listingOption->getPrice());
-                $option->setMin($listingOption->getMin());
-                $option->setMax($listingOption->getMax());
-                $option->setType($listingOption->getType());
-                $option->setListingOptionId($listingOption->getId());
-
-                foreach ($locales as $locale) {
-                    /** @var \Cocorico\ListingOptionBundle\Entity\ListingOptionTranslation $translation */
-                    $translation = $listingOption->getTranslations()->get($locale);
-                    $option
-                        ->translate($locale)
-                        ->setName($translation->getName())
-                        ->setDescription($translation->getDescription());
-                }
-
-                $option->mergeNewTranslations();
-
-                $booking->addOption($option);
-            }
-        }
-
-        return $booking;
-    }
-
 
     /**
      * @param  Booking $booking
@@ -1168,6 +1458,21 @@ class BookingManager extends BaseManager
         return $this->timeUnitIsDay;
     }
 
+    /**
+     * @return int
+     */
+    public function getExpirationDelay()
+    {
+        return $this->expirationDelay;
+    }
+
+    /**
+     * @return int
+     */
+    public function getAcceptationDelay()
+    {
+        return $this->acceptationDelay;
+    }
 
     /**
      * @return TwigSwiftMailer
@@ -1179,27 +1484,19 @@ class BookingManager extends BaseManager
 
     /**
      * @return bool
-     * @throws \Exception
      */
-    public function voucherIsEnabled()
+    public function mangopayIsEnabled()
     {
-        //Voucher and Option Bundles not ready yet for booking amount computing
-        if ($this->optionIsEnabled()) {
-            throw new \Exception("Voucher and Option are enabled but not ready yet");
-        }
-
-        return !$this->em->getMetadataFactory()->isTransient('Cocorico\VoucherBundle\Entity\Voucher');
-
+        return isset($this->bundles["CocoricoMangoPayBundle"]);
     }
 
     /**
      * @return bool
      */
-    public function optionIsEnabled()
+    private function voucherIsEnabled()
     {
-        return !$this->em->getMetadataFactory()->isTransient('Cocorico\ListingOptionBundle\Entity\ListingOption');
+        return isset($this->bundles["CocoricoVoucherBundle"]);
     }
-
 
     /**
      *
@@ -1208,6 +1505,15 @@ class BookingManager extends BaseManager
     public function getRepository()
     {
         return $this->em->getRepository('CocoricoCoreBundle:Booking');
+    }
+
+    /**
+     *
+     * @return ListingAvailabilityRepository
+     */
+    protected function getAvailabilityRepository()
+    {
+        return $this->dm->getRepository('CocoricoCoreBundle:ListingAvailability');
     }
 
     /**

@@ -146,13 +146,14 @@ class ContainerBuilder extends BaseContainerBuilder
         }
         $mergedConfig = $this->getParameterBag()->resolveValue($mergedConfig);
         $allowedParameters = $mergedConfig['parameters_allowed'];
+        $allowedParameters = array_keys($allowedParameters);
 
         $query = $this->connection->query($this->createParametersQuery());
         $parameters = $query->fetchAll();
         foreach ($parameters as $i => $parameter) {
             $name = $parameter['name'];
             $value = $parameter['value'];
-            if (in_array($name, $allowedParameters) && $this->hasParameter($name) && $value) {
+            if (in_array($name, $allowedParameters) && $this->hasParameter($name) && strlen($value)) {
                 $this->setParameter($name, $value);
             }
         }

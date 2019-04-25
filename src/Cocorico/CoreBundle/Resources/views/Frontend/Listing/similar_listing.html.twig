@@ -1,7 +1,7 @@
 {% trans_default_domain 'cocorico_listing' %}
 
 <section class="widget similar-ads">
-    <h1>{{ 'listing.similaries.heading'|trans }}</h1>
+    <h2>{{ 'listing.similaries.heading'|trans }}</h2>
 
     <div class="listing-holder">
         <!-- post -->
@@ -43,12 +43,12 @@
                         </a>
                     </h2>
 
-                    <p>{{ listing_translation.description | truncate(50,true) }}</p>
+                    <p>{{ listing_translation.description | strip_private_info | truncate(50,true) }}</p>
                 </div>
             </article>
         {% endfor %}
     </div>
-    {% if ('search_result?location' in app.request.headers.get('referer')) or ('resultat_recherche?location' in app.request.headers.get('referer')) %}
+    {% if ('search_result?location' in app.request.headers.get('referer')) or ('resultat-recherche?location' in app.request.headers.get('referer')) %}
         {% set referer = app.request.headers.get('referer') %}
     {% else %}
         {% set referer = path('cocorico_listing_search_result') %}
